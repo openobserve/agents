@@ -97,7 +97,7 @@ Description=OpenTelemetry Collector
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/otelcol --config /etc/otel-config.yaml
+ExecStart=/usr/local/bin/otelcol-contrib --config /etc/otel-config.yaml
 Restart=always
 User=nobody
 Group=nobody
