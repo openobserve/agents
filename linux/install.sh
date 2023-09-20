@@ -9,6 +9,15 @@ fi
 URL=$1
 AUTH_KEY=$2
 
+# Ensure 'openobserve-agent' user and group exist
+if ! id -u openobserve-agent &>/dev/null; then
+    useradd --system openobserve-agent
+fi
+
+if ! grep -q "^openobserve-agent:" /etc/group; then
+    groupadd openobserve-agent
+fi
+
 # Detect OS and architecture
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -23,12 +32,12 @@ fi
 DOWNLOAD_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.85.0/otelcol-contrib_0.85.0_${OS}_${ARCH}.tar.gz"
 
 # Download the otel-collector binary
-curl -L $DOWNLOAD_URL -o otelcol.tar.gz
+curl -L $DOWNLOAD_URL -o otelcol-contrib.tar.gz
 
 # Extract the binary
-tar -xzf otelcol.tar.gz
+tar -xzf otelcol-contrib.tar.gz
 
-# Assuming otel-collector binary is named 'otelcol' inside the tar
+# Move the binary to /usr/local/bin
 mv otelcol-contrib /usr/local/bin/
 
 # Generate a sample configuration file
@@ -40,6 +49,7 @@ receivers:
       http:
   filelog/std:
     include: [ /var/log/**log ]
+    # start_at: beginning
   hostmetrics:
     root_path: /
     collection_interval: 30s
@@ -52,6 +62,7 @@ receivers:
       network:
       paging:          
       processes:
+      # process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
 processors:
   resourcedetection:
     detectors: [system]
@@ -69,7 +80,7 @@ extensions:
     size_mib: 512
 
 exporters:
-  otlphttp/openobserve:
+  otlphttp/openobserve::
     endpoint: $URL
     headers:
       Authorization: "Basic $AUTH_KEY"
@@ -85,10 +96,7 @@ service:
       receivers: [filelog/std]
       processors: [ memory_limiter, batch]
       exporters: [otlphttp/openobserve]
-
 EOL
-
-mv otel-config.yaml /etc/otel-config.yaml
 
 # Set up otel-collector to run as a systemd service
 cat > /etc/systemd/system/otel-collector.service <<EOL
@@ -99,8 +107,8 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/otelcol-contrib --config /etc/otel-config.yaml
 Restart=always
-User=nobody
-Group=nobody
+User=openobserve-agent
+Group=openobserve-agent
 
 [Install]
 WantedBy=multi-user.target
