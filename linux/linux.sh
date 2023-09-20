@@ -20,7 +20,7 @@ elif [ "$ARCH" = "aarch64" ]; then
 fi
 
 # Construct the download URL
-DOWNLOAD_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.85.0/otelcol_0.85.0_${OS}_${ARCH}.tar.gz"
+DOWNLOAD_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.85.0/otelcol-contrib_0.85.0_${OS}_${ARCH}.tar.gz"
 
 # Download the otel-collector binary
 curl -L $DOWNLOAD_URL -o otelcol.tar.gz
