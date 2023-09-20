@@ -88,6 +88,8 @@ service:
 
 EOL
 
+mv otel-config.yaml /etc/otel-config.yaml
+
 # Set up otel-collector to run as a systemd service
 cat > /etc/systemd/system/otel-collector.service <<EOL
 [Unit]
@@ -95,7 +97,7 @@ Description=OpenTelemetry Collector
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/otelcol --config $(pwd)/otel-config.yaml
+ExecStart=/usr/local/bin/otelcol --config /etc/otel-config.yaml
 Restart=always
 User=nobody
 Group=nobody
