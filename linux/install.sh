@@ -43,10 +43,6 @@ mv otelcol-contrib /usr/local/bin/
 # Generate a sample configuration file
 cat > otel-config.yaml <<EOL
 receivers:
-  otlp:
-    protocols:
-      grpc:
-      http:
   filelog/std:
     include: [ /var/log/**log ]
     # start_at: beginning
