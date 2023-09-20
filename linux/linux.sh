@@ -29,7 +29,7 @@ curl -L $DOWNLOAD_URL -o otelcol.tar.gz
 tar -xzf otelcol.tar.gz
 
 # Assuming otel-collector binary is named 'otelcol' inside the tar
-mv otelcol /usr/local/bin/
+mv otelcol-contrib /usr/local/bin/
 
 # Generate a sample configuration file
 cat > otel-config.yaml <<EOL
