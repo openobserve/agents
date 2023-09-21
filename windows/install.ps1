@@ -61,6 +61,13 @@ if (-not (CheckIfNssmInstalled)) {
 
     $architecture = if ([IntPtr]::Size -eq 8) { "win64" } else { "win32" }
     $NSSMPath = "$ExtractionPath\nssm-2.24\$architecture\nssm.exe"
+    
+    # Add NSSM to system PATH
+    $env:Path += ";$ExtractionPath\nssm-2.24\$architecture"
+    [System.Environment]::SetEnvironmentVariable("Path", $env:Path, [System.EnvironmentVariableTarget]::Machine)
+    
+    # Refresh current session PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 else {
     Write-Host "NSSM is already installed. Skipping installation."
