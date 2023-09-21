@@ -75,7 +75,6 @@ $ConfigContent | Out-File -Path "C:\Program Files\otel-config.yaml"
 # Alternatively, you could consider using a Windows-native version of otel-collector which provides Windows service support out of the box
 
 Write-Host "Otel-collector setup completed! Please use a service manager to run it as a Windows service."
-"@
 
 # Note: The Windows environment doesn't have a built-in method like `systemd` to manage services. You might need a tool like NSSM (Non-Sucking Service Manager) to easily convert applications into Windows services.
 
