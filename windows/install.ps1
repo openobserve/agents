@@ -24,6 +24,12 @@ $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-relea
 # Download the otel-collector binary
 Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.tar.gz"
 
+# Create the directory to extract the binary
+$directoryPath = "C:\Program Files\otel-collector\"
+if (-not (Test-Path $directoryPath -PathType Container)) {
+    New-Item -Path $directoryPath -ItemType Directory
+}
+
 # Extract the binary
 tar -xzf "otelcol-contrib.tar.gz" -C "C:\Program Files\otel-collector\"
 
