@@ -33,7 +33,7 @@ You need minimum PowerShell 6 to run the install script. you can check your Powe
 You should see something like this:
 
 ```powershell
-PS C:\Program Files\PowerShell\7> $PSVersionTable.PSVersion
+PS C:\> $PSVersionTable.PSVersion
 
 Major  Minor  Patch  PreReleaseLabel BuildLabel
 -----  -----  -----  --------------- ----------
