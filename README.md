@@ -48,6 +48,8 @@ You can download and install the latest version of powershell from [here](https:
 powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/install.ps1 -OutFile install.ps1" ; install - powershell -ExecutionPolicy Bypass -File .\install.ps1 -URL <URL> -AUTH_KEY <Authorization_Key>
 ```
 
+Now run `services.msc` and start the `otel-collector service` service.
+
 ### uninstall
 ```powershell
 powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/uninstall.ps1 -OutFile uninstall.ps1" ; powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
