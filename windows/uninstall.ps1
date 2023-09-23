@@ -9,8 +9,8 @@ if ($Service) {
 }
 
 # Remove otel-collector files
-Remove-Item -Path "C:\Program Files\otelcol-contrib" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\Program Files\otel-config.yaml" -ErrorAction SilentlyContinue
+Remove-Item -Path "C:\otel-collector\otelcol-contrib" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "C:\otel-collector\otel-config.yaml" -ErrorAction SilentlyContinue
 
 Write-Host "otel-collector uninstalled successfully!"
 

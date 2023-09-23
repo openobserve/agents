@@ -4,21 +4,7 @@ param (
     [string]$AUTH_KEY
 )
 
-# Function to check if NSSM is already installed
-function CheckIfNssmInstalled {
-    try {
-        # Try running the nssm command and check the version
-        $output = nssm version
-        # If command runs successfully, NSSM is installed
-        return $true
-    }
-    catch {
-        # If command fails, NSSM is not installed
-        return $false
-    }
-}
-
-# Check if both URL and AUTH_KEY parameters are provided
+# Validate the provided parameters
 if (-not $URL -or -not $AUTH_KEY) {
     Write-Host "Usage: .\install-otel-collector.ps1 -URL <URL> -AUTH_KEY <Authorization_Key>"
     exit 1
@@ -28,11 +14,8 @@ if (-not $URL -or -not $AUTH_KEY) {
 $OS = "windows"
 $ARCH = $ENV:PROCESSOR_ARCHITECTURE.ToLower()
 
-if ($ARCH -eq "amd64") {
-    $ARCH = "amd64"
-} elseif ($ARCH -eq "arm64") {
-    $ARCH = "arm64"
-}
+# architecture check
+$ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } else { $ARCH }
 
 # Construct the download URL for otel-collector based on OS and architecture
 $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.85.0/otelcol-contrib_0.85.0_${OS}_${ARCH}.tar.gz"
@@ -41,60 +24,101 @@ $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-relea
 Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.tar.gz"
 
 # Ensure the target directory for extraction exists
-$directoryPath = "C:\Program Files\otel-collector\"
+$directoryPath = "C:\otel-collector\"
 if (-not (Test-Path $directoryPath -PathType Container)) {
     New-Item -Path $directoryPath -ItemType Directory
 }
 
 # Extract the downloaded archive to the target directory
-tar -xzf "otelcol-contrib.tar.gz" -C "C:\Program Files\otel-collector\"
+tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
 
 # Generate a sample configuration file for otel-collector
-# [Note: Configuration Content Here]
+$ConfigContent = @"
+receivers:
+  windowsperfcounters/memory:
+    metrics:
+      bytes.committed:
+        description: the number of bytes committed to memory
+        unit: By
+        gauge:
+    collection_interval: 30s
+    perfcounters:
+      - object: Memory
+        counters:
+          - name: Committed Bytes
+            metric: bytes.committed
 
-$ConfigContent | Out-File -Path "C:\Program Files\otel-collector\otel-config.yaml"
+  windowsperfcounters/processor:
+    collection_interval: 1m
+    metrics:
+      processor.time:
+        description: active and idle time of the processor
+        unit: "%"
+        gauge:
+    perfcounters:
+      - object: "Processor"
+        instances: "*"
+        counters:
+          - name: "% Processor Time"
+            metric: processor.time
+            attributes:
+              state: active
+      - object: "Processor"
+        instances: [1, 2]
+        counters:
+          - name: "% Idle Time"
+            metric: processor.time
+            attributes:
+              state: idle
+  windowseventlog:
+        channel: application
+processors:
+  resourcedetection:
+    detectors: [system]
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch:
+    send_batch_size: 10000
+    timeout: 10s
 
-# Check if NSSM is already installed
-if (-not (CheckIfNssmInstalled)) {
-    # If not installed, download NSSM from its source
-    $NSSM_ZipUrl = "https://nssm.cc/release/nssm-2.24.zip"
-    $ExtractionPath = "C:\nssm-2.24"
+extensions:
+  zpages: {}
+  memory_ballast:
+    size_mib: 512
 
-    Invoke-WebRequest -Uri $NSSM_ZipUrl -OutFile "$ExtractionPath.zip"
-    Expand-Archive -Path "$ExtractionPath.zip" -DestinationPath $ExtractionPath
+exporters:
+  otlphttp/openobserve:
+    endpoint: $URL
+    headers:
+      Authorization: "Basic $AUTH_KEY"
 
-    # Determine the architecture to select the correct NSSM executable
-    $architecture = if ([IntPtr]::Size -eq 8) { "win64" } else { "win32" }
-    $NSSMPath = "$ExtractionPath\nssm-2.24\$architecture\nssm.exe"
+service:
+  extensions: [zpages, memory_ballast]
+  pipelines:
+    metrics:
+      receivers: [windowsperfcounters/processor, windowsperfcounters/memory]
+      processors: [ memory_limiter, batch]
+      exporters: [otlphttp/openobserve]
+    logs:
+      receivers: [windowseventlog]
+      processors: [ memory_limiter, batch]
+      exporters: [otlphttp/openobserve]
+"@
 
-    # Add NSSM's path to the system PATH environment variable
-    $env:Path += ";$ExtractionPath\nssm-2.24\$architecture"
-    [System.Environment]::SetEnvironmentVariable("Path", $env:Path, [System.EnvironmentVariableTarget]::Machine)
-    
-    # Refresh the current session's PATH to recognize the newly added NSSM path
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+# Write the configuration content to a file
+$ConfigContent | Out-File "${directoryPath}otel-config.yaml"
+
+# Define the service parameters
+$serviceName = "otelcollector23"
+$params = @{
+  Name           = $serviceName
+  BinaryPathName = "${directoryPath}otelcol-contrib.exe --config=${directoryPath}otel-config.yaml"
+  DisplayName    = $serviceName
+  StartupType    = "Automatic"
+  Description    = "OpenObserve otel-collector service."
 }
-else {
-    # If NSSM is already installed, proceed without reinstallation
-    Write-Host "NSSM is already installed. Skipping installation."
-    $NSSMPath = "nssm"
-}
 
-# Check if otel-collector service already exists
-try {
-    & $NSSMPath status "otel-collector"
-    Write-Host "Otel-collector service exists. Removing..."
-    # Remove the existing otel-collector service
-    & $NSSMPath remove "otel-collector" confirm
-    Write-Host "Otel-collector service removed successfully."
-}
-catch {
-    Write-Host "Otel-collector service does not exist. Proceeding with installation."
-}
-
-# Set up otel-collector as a new service using NSSM
-& $NSSMPath install "otel-collector" "C:\Program Files\otel-collector\otelcol-contrib.exe" "--config=C:\Program Files\otel-collector\otel-config.yaml"
-& $NSSMPath start "otel-collector"
-
-# Notify user of successful service start
-Write-Host "Otel-collector service started using NSSM!"
+# Create the service
+New-Service @params
