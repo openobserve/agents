@@ -3,14 +3,10 @@
 $Service = Get-Service -Name "otel-collector" -ErrorAction SilentlyContinue
 if ($Service) {
     Stop-Service -Name "otel-collector"
-    # If you used NSSM or another tool to register otel-collector as a service, you might need to unregister it.
-    # For NSSM:
-    # & 'C:\path\to\nssm.exe' remove otel-collector confirm
 }
 
 # Remove otel-collector files
-Remove-Item -Path "C:\otel-collector\otelcol-contrib" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\otel-collector\otel-config.yaml" -ErrorAction SilentlyContinue
+Remove-Item -Path "C:\otel-collector" -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "otel-collector uninstalled successfully!"
 
