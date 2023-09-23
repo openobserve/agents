@@ -111,7 +111,7 @@ service:
 $ConfigContent | Out-File "${directoryPath}otel-config.yaml"
 
 # Define the service parameters
-$serviceName = "otelcollector23"
+$serviceName = "otel-collector"
 $params = @{
   Name           = $serviceName
   BinaryPathName = "${directoryPath}otelcol-contrib.exe --config=${directoryPath}otel-config.yaml"
