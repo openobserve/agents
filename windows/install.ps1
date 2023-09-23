@@ -35,6 +35,20 @@ tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
 # Generate a sample configuration file for otel-collector
 $ConfigContent = @"
 receivers:
+  hostmetrics:
+    root_path: /
+    collection_interval: 30s
+    scrapers:
+      cpu:
+      disk:
+      filesystem:
+      load:
+      memory:
+      network:
+      paging:          
+      processes:
+      # process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
+      
   windowsperfcounters/memory:
     metrics:
       bytes.committed:
@@ -98,7 +112,7 @@ service:
   extensions: [zpages, memory_ballast]
   pipelines:
     metrics:
-      receivers: [windowsperfcounters/processor, windowsperfcounters/memory]
+      receivers: [windowsperfcounters/processor, windowsperfcounters/memory, hostmetrics]
       processors: [ memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
