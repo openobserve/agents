@@ -36,7 +36,6 @@ tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
 $ConfigContent = @"
 receivers:
   hostmetrics:
-    root_path: /
     collection_interval: 30s
     scrapers:
       cpu:
