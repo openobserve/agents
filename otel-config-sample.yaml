@@ -1,0 +1,58 @@
+receivers:
+  filelog/std:
+    include: [/var/log/**log]
+    # start_at: beginning
+  hostmetrics:
+    # root_path: / # root_path is supported on linux only
+    collection_interval: 30s
+    scrapers:
+      # cpu: # Not supported on Mac when compiled without cgo which is the default.
+      # disk: # Not supported on Mac when compiled without cgo which is the default.
+      filesystem:
+      load:
+      memory:
+      network:
+      paging:
+      processes:
+      process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
+processors:
+  resourcedetection:
+    detectors: [system]
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch:
+    send_batch_size: 10000
+    timeout: 10s
+
+extensions:
+  zpages: {}
+  memory_ballast:
+    size_mib: 512
+
+exporters:
+  otlphttp/openobserve:
+    endpoint: http://localhost:5080/api/default/
+    headers:
+      Authorization: "Basic cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM="
+  otlp:
+    endpoint: localhost:5081
+    headers:
+      Authorization: "Basic cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM="
+      organization: default
+      stream-name: default
+    tls:
+      insecure: true
+
+service:
+  extensions: [zpages, memory_ballast]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [memory_limiter, batch]
+      exporters: [otlp]
+    logs:
+      receivers: [filelog/std]
+      processors: [memory_limiter, batch]
+      exporters: [otlp]

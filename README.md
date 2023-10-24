@@ -1,12 +1,10 @@
-Note: Not ready for production use yet.
-
 # Agents
 
 Scripts that configure and install the Open Observe agent on various platforms.
 
 ## Linux
 
-### install
+### Install
 
 ```bash
 wget https://raw.githubusercontent.com/openobserve/agents/main/linux/install.sh && chmod +x install.sh && sudo ./install.sh {URL} {authorization_token}
@@ -18,7 +16,7 @@ e.g.
 wget https://raw.githubusercontent.com/openobserve/agents/main/linux/install.sh && chmod +x install.sh && sudo ./install.sh https://api.openobserve.com/api/your_org/ cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM=
 ``` 
 
-### uninstall
+### Uninstall
 
 ```bash
 wget https://raw.githubusercontent.com/openobserve/agents/main/linux/uninstall.sh && chmod +x uninstall.sh && sudo ./uninstall.sh
@@ -26,7 +24,7 @@ wget https://raw.githubusercontent.com/openobserve/agents/main/linux/uninstall.s
 
 ## Windows
 
-### install
+### Install
 
 You need minimum PowerShell 6 to run the install script. you can check your PowerShell version by running `$PSVersionTable.PSVersion` in your terminal.
 
@@ -50,8 +48,18 @@ powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/op
 
 Now run `services.msc` and start the `otel-collector service` service.
 
-### uninstall
+### Uninstall
 ```powershell
 powershell -Command "Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/uninstall.ps1 -OutFile uninstall.ps1" ; powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
+
+## MacOS
+
+## Install
+
+
+
+
+
+## Uninstall
 
