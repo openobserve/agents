@@ -83,8 +83,14 @@ receivers:
             metric: processor.time
             attributes:
               state: idle
-  windowseventlog:
-        channel: application
+    windowseventlog/application:
+      channel: application
+    windowseventlog/security:
+      channel: security
+    windowseventlog/setup:
+      channel: setup
+    windowseventlog/system:
+      channel: system
 processors:
   resourcedetection:
     detectors: [system]
@@ -115,7 +121,7 @@ service:
       processors: [ memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
-      receivers: [windowseventlog]
+      receivers: [windowseventlog/application,windowseventlog/security,windowseventlog/setup,windowseventlog/system]
       processors: [ memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 "@
