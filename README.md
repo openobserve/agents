@@ -51,7 +51,7 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main
 e.g.
 
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/install.ps1 -OutFile install.ps1 ; .\install.ps1 -URL https://localhost:5080/api/default -AUTH_KEY cm9vdEBowWjJSanhscWtSbVB5S0VE
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/install.ps1 -OutFile install.ps1 ; .\install.ps1 -URL http://localhost:5080/api/default -AUTH_KEY cm9vdEBowWjJSanhscWtSbVB5S0VE
 ```
 
 Now run `services.msc` and start the `otel-collector service` service.
