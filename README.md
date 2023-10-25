@@ -10,11 +10,11 @@ Scripts that configure and install the Open Observe agent on various platforms.
 wget https://raw.githubusercontent.com/openobserve/agents/main/linux/install.sh && chmod +x install.sh && sudo ./install.sh {URL} {authorization_token}
 ```
 
-e.g. 
+e.g.
 
 ```bash
 wget https://raw.githubusercontent.com/openobserve/agents/main/linux/install.sh && chmod +x install.sh && sudo ./install.sh https://api.openobserve.com/api/your_org/ cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM=
-``` 
+```
 
 ### Uninstall
 
@@ -56,8 +56,10 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main
 
 Now run `services.msc` and start the `otel-collector service` service.
 
+![Windows logs](screenshots/windows_logs.png)
 
 ### Uninstall
+
 ```powershell
 Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/uninstall.ps1 -OutFile uninstall.ps1 ; .\uninstall.ps1
 ```
@@ -66,9 +68,4 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main
 
 ## Install
 
-
-
-
-
 ## Uninstall
-
