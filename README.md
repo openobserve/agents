@@ -64,8 +64,3 @@ Now run `services.msc` and start the `otel-collector service` service.
 Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/uninstall.ps1 -OutFile uninstall.ps1 ; .\uninstall.ps1
 ```
 
-## MacOS
-
-## Install
-
-## Uninstall
