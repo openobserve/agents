@@ -42,7 +42,7 @@ tar -xzf otelcol-contrib.tar.gz
 mv otelcol-contrib /usr/local/bin/
 
 # Generate a sample configuration file
-cat > otel-config.yaml <<EOL
+cat > /etc/otel-config.yaml <<EOL
 receivers:
   filelog/std:
     include: [ /var/log/**log ]
@@ -77,7 +77,7 @@ extensions:
     size_mib: 512
 
 exporters:
-  otlphttp/openobserve::
+  otlphttp/openobserve:
     endpoint: $URL
     headers:
       Authorization: "Basic $AUTH_KEY"
