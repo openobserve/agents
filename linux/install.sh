@@ -21,7 +21,7 @@ fi
 # Detect OS and architecture
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
-OTEL_VERSION = "0.88.0"
+OTEL_VERSION="0.88.0"
 
 if [ "$ARCH" = "x86_64" ]; then
     ARCH="amd64"
@@ -30,7 +30,7 @@ elif [ "$ARCH" = "aarch64" ]; then
 fi
 
 # Construct the download URL
-DOWNLOAD_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v$OTEL_VERSION/otelcol-contrib_$OTEL_VERSION_${OS}_${ARCH}.tar.gz"
+DOWNLOAD_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v$OTEL_VERSION/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
 
 # Download the otel-collector binary
 curl -L $DOWNLOAD_URL -o otelcol-contrib.tar.gz
@@ -42,7 +42,7 @@ tar -xzf otelcol-contrib.tar.gz
 mv otelcol-contrib /usr/local/bin/
 
 # Generate a sample configuration file
-cat > otel-config.yaml <<EOL
+cat > /etc/otel-config.yaml <<EOL
 receivers:
   filelog/std:
     include: [ /var/log/**log ]
@@ -77,7 +77,7 @@ extensions:
     size_mib: 512
 
 exporters:
-  otlphttp/openobserve::
+  otlphttp/openobserve:
     endpoint: $URL
     headers:
       Authorization: "Basic $AUTH_KEY"
