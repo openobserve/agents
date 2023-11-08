@@ -16,7 +16,7 @@ $ARCH = $ENV:PROCESSOR_ARCHITECTURE.ToLower()
 $OTEL_VERSION = "0.88.0"
 
 # architecture check
-$ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } else { $ARCH }
+$ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } elseif ($ARCH -eq "x86") { "386" } else { $ARCH }
 
 # Construct the download URL for otel-collector based on OS and architecture
 $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
