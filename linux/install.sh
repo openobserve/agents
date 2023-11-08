@@ -38,6 +38,9 @@ curl -L $DOWNLOAD_URL -o otelcol-contrib.tar.gz
 # Extract the binary
 tar -xzf otelcol-contrib.tar.gz
 
+# make the binary executable
+chmod +x otelcol-contrib
+
 # Move the binary to /usr/local/bin
 mv otelcol-contrib /usr/local/bin/
 
