@@ -6,7 +6,7 @@ param (
 
 # Validate the provided parameters
 if (-not $URL -or -not $AUTH_KEY) {
-    Write-Host "Usage: .\install-otel-collector.ps1 -URL <URL> -AUTH_KEY <Authorization_Key>"
+    Write-Host "Usage: .\install.ps1 -URL <URL> -AUTH_KEY <Authorization_Key>"
     exit 1
 }
 
@@ -84,14 +84,14 @@ receivers:
             metric: processor.time
             attributes:
               state: idle
-    windowseventlog/application:
-      channel: application
-    windowseventlog/security:
-      channel: security
-    windowseventlog/setup:
-      channel: setup
-    windowseventlog/system:
-      channel: system
+  windowseventlog/application:
+    channel: application
+  windowseventlog/security:
+    channel: security
+  windowseventlog/setup:
+    channel: setup
+  windowseventlog/system:
+    channel: system
 processors:
   resourcedetection:
     detectors: [system]
