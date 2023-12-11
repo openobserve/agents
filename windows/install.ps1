@@ -21,20 +21,21 @@ $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" 
 # Construct the download URL for otel-collector based on OS and architecture
 # $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
 
-$DOWNLOAD_URL = "https://zinc-public-data.s3.us-west-2.amazonaws.com/opentelemetry-collector-releases/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.zip
+$DOWNLOAD_URL = "https://zinc-public-data.s3.us-west-2.amazonaws.com/opentelemetry-collector-releases/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.zip"
 
 # Download otel-collector from the specified URL
-Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.zip"
+# Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.zip"
 
 # Ensure the target directory for extraction exists
-$directoryPath = "C:\otel-collector\"
+$SERVICE_NAME="otel-collector"
+$directoryPath = "C:\${SERVICE_NAME}\"
 if (-not (Test-Path $directoryPath -PathType Container)) {
     New-Item -Path $directoryPath -ItemType Directory
 }
 
 # Extract the downloaded archive to the target directory
 # tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
-Expand-Archive "otelcol-contrib.tar.gz" -DestinationPath $directoryPath
+Expand-Archive "otelcol-contrib.zip" -DestinationPath $directoryPath -Force
 
 # Generate a sample configuration file for otel-collector
 $ConfigContent = @"
@@ -134,11 +135,10 @@ service:
 $ConfigContent | Out-File "${directoryPath}otel-config.yaml"
 
 # Define the service parameters
-$serviceName = "otel-collector"
 $params = @{
-  Name           = $serviceName
+  Name           = $SERVICE_NAME
   BinaryPathName = "${directoryPath}otelcol-contrib.exe --config=${directoryPath}otel-config.yaml"
-  DisplayName    = $serviceName
+  DisplayName    = $SERVICE_NAME
   StartupType    = "Automatic"
   Description    = "OpenObserve otel-collector service."
 }
