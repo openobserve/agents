@@ -116,6 +116,7 @@ exporters:
   otlphttp/openobserve:
     endpoint: $URL
     headers:
+      stream-name: windows
       Authorization: "Basic $AUTH_KEY"
 
 service:
