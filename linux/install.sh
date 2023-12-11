@@ -21,7 +21,7 @@ fi
 # Detect OS and architecture
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
-OTEL_VERSION="0.88.0"
+OTEL_VERSION="0.90.1"
 
 if [ "$ARCH" = "x86_64" ]; then
     ARCH="amd64"
