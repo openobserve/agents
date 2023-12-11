@@ -1,6 +1,6 @@
 #!/bin/bash
 
-OTEL_VERSION="0.88.0"
+OTEL_VERSION="0.90.1"
 
 if [ "$ARCH" = "x86_64" ]; then
     ARCH="amd64"
@@ -38,8 +38,8 @@ receivers:
   hostmetrics:
     collection_interval: 30s
     scrapers:
-      # cpu: not implemented on mac
-      # disk: not implemented on mac
+      # cpu: not implemented on mac (no cgo)
+      # disk: not implemented on mac (no cgo)
       filesystem:
       load:
       memory:
@@ -84,9 +84,6 @@ service:
       processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 
-EOL
-
-
 # Save the plist content to the target plist path
 cat <<EOF > "$PLIST_PATH"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -106,6 +103,6 @@ cat <<EOF > "$PLIST_PATH"
 EOF
 
 # Load the plist into launchd
-launchctl bootstrap system "$PLIST_PATH"
+# launchctl bootstrap system "$PLIST_PATH"
 
 echo "Binary downloaded and set up to run at launch!"
