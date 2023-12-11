@@ -83,6 +83,7 @@ service:
       receivers: [filelog/std]
       processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
+EOL
 
 # Save the plist content to the target plist path
 cat <<EOF > "$PLIST_PATH"
@@ -103,6 +104,6 @@ cat <<EOF > "$PLIST_PATH"
 EOF
 
 # Load the plist into launchd
-# launchctl bootstrap system "$PLIST_PATH"
+launchctl bootstrap system "$PLIST_PATH"
 
 echo "Binary downloaded and set up to run at launch!"
