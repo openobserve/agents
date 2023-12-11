@@ -13,7 +13,7 @@ if (-not $URL -or -not $AUTH_KEY) {
 # Detect the operating system and its architecture
 $OS = "windows"
 $ARCH = $ENV:PROCESSOR_ARCHITECTURE.ToLower()
-$OTEL_VERSION = "0.88.0"
+$OTEL_VERSION = "0.90.1"
 
 # architecture check
 $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } elseif ($ARCH -eq "x86") { "386" } else { $ARCH }
@@ -31,7 +31,8 @@ if (-not (Test-Path $directoryPath -PathType Container)) {
 }
 
 # Extract the downloaded archive to the target directory
-tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
+# tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
+Expand-Archive "otelcol-contrib.tar.gz" -DestinationPath $directoryPath
 
 # Generate a sample configuration file for otel-collector
 $ConfigContent = @"
