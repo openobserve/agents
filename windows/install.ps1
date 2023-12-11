@@ -19,10 +19,12 @@ $OTEL_VERSION = "0.90.1"
 $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } elseif ($ARCH -eq "x86") { "386" } else { $ARCH }
 
 # Construct the download URL for otel-collector based on OS and architecture
-$DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
+# $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
+
+$DOWNLOAD_URL = "https://zinc-public-data.s3.us-west-2.amazonaws.com/opentelemetry-collector-releases/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.zip
 
 # Download otel-collector from the specified URL
-Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.tar.gz"
+Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.zip"
 
 # Ensure the target directory for extraction exists
 $directoryPath = "C:\otel-collector\"
