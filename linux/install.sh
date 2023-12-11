@@ -64,8 +64,10 @@ receivers:
       processes:
       # process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
 processors:
-  resourcedetection:
-    detectors: [system]
+  resourcedetection/system:
+    detectors: ["system"]
+    system:
+      hostname_sources: ["os"]
   memory_limiter:
     check_interval: 1s
     limit_percentage: 75
@@ -90,11 +92,11 @@ service:
   pipelines:
     metrics:
       receivers: [hostmetrics]
-      processors: [ memory_limiter, batch]
+      processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
       receivers: [filelog/std]
-      processors: [ memory_limiter, batch]
+      processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 EOL
 

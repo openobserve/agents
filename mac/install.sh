@@ -28,25 +28,82 @@ curl -L "$BINARY_URL" -o "$BINARY_PATH"
 # Make the binary executable
 chmod +x "$BINARY_PATH"
 
+# Generate a sample configuration file
+cat > /etc/otel-config.yaml <<EOL
+receivers:
+  filelog/std:
+    include: [ /var/log/**log ]
+    include_file_name: false
+    include_file_path: true
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      # cpu: not implemented on mac (no cgo)
+      # disk: not implemented on mac (no cgo)
+      filesystem:
+      load:
+      memory:
+      network:
+      paging:          
+      processes:
+      process: 
+processors:
+  resourcedetection/system:
+    detectors: [ "system" ]
+    system:
+      hostname_sources: [ "os" ]
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch:
+    send_batch_size: 10000
+    timeout: 10s
+
+extensions:
+  zpages: {}
+  memory_ballast:
+    size_mib: 512
+
+exporters:
+  otlphttp/openobserve:
+    endpoint: $URL
+    headers:
+      stream-name: mac
+      Authorization: "Basic $AUTH_KEY"
+
+service:
+  extensions: [zpages, memory_ballast]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [resourcedetection/system, memory_limiter, batch]
+      exporters: [otlphttp/openobserve]
+    logs:
+      receivers: [filelog/std]
+      processors: [resourcedetection/system, memory_limiter, batch]
+      exporters: [otlphttp/openobserve]
+EOL
+
 # Save the plist content to the target plist path
-cat <<EOF > "$PLIST_PATH"
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>ai.openobserve.otelcol-contrib</string>
-    <key>Program</key>
-    <string>/opt/openobserve-collector/otelcol-contrib</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-</dict>
-</plist>
-EOF
+# cat <<EOF > "$PLIST_PATH"
+# <?xml version="1.0" encoding="UTF-8"?>
+# <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+# <plist version="1.0">
+# <dict>
+#     <key>Label</key>
+#     <string>ai.openobserve.otelcol-contrib</string>
+#     <key>Program</key>
+#     <string>/opt/openobserve-collector/otelcol-contrib</string>
+#     <key>RunAtLoad</key>
+#     <true/>
+#     <key>KeepAlive</key>
+#     <true/>
+# </dict>
+# </plist>
+# EOF
 
 # Load the plist into launchd
-launchctl bootstrap system "$PLIST_PATH"
+# launchctl bootstrap system "$PLIST_PATH"
 
 echo "Binary downloaded and set up to run at launch!"

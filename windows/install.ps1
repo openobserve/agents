@@ -97,8 +97,10 @@ receivers:
   windowseventlog/system:
     channel: system
 processors:
-  resourcedetection:
-    detectors: [system]
+  resourcedetection/system:
+    detectors: ["system"]
+    system:
+      hostname_sources: ["os"]
   memory_limiter:
     check_interval: 1s
     limit_percentage: 75
@@ -124,11 +126,11 @@ service:
   pipelines:
     metrics:
       receivers: [windowsperfcounters/processor, windowsperfcounters/memory, hostmetrics]
-      processors: [ memory_limiter, batch]
+      processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
       receivers: [windowseventlog/application,windowseventlog/security,windowseventlog/setup,windowseventlog/system]
-      processors: [ memory_limiter, batch]
+      processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 "@
 
