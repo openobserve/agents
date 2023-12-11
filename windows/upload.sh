@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# This script downloads the OpenTelemetry Collector release files from GitHub, converts the .tar.gz file to .zip file and uploads to s3.
+# Uploading the file as .zip allows downloading the file and extracting it without upgrading powershell to 6 and above.
+# Default version of powershell is 5.1 which does not support extracting .tar.gz files natively.
+
 # Set your variables
 OTEL_VERSION="0.90.1"  # The desired version
 OS="windows"           # Operating system
