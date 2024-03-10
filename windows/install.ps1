@@ -148,3 +148,6 @@ $params = @{
 
 # Create the service
 New-Service @params
+
+# Start the service
+Start-Service $SERVICE_NAME
