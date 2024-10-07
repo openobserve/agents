@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# Check if the required number of arguments are provided
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <URL> <Authorization_Key>"
+    exit 1
+fi
+
+URL=$1
+AUTH_KEY=$2
+
+# Detect OS and architecture
+OS=$(uname | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
 OTEL_VERSION="0.90.1"
 
 if [ "$ARCH" = "x86_64" ]; then
@@ -10,23 +23,25 @@ fi
 
 # Define the binary download URL and the target download path
 BINARY_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_darwin_${ARCH}.tar.gz"
-BINARY_PATH="/opt/openobserve-collector/otelcol-contrib"
+BINARY_OPT="/opt/openobserve-collector"
+BINARY_PATH="$BINARY_OPT/otelcol-contrib"
 PLIST_PATH="/Library/LaunchDaemons/ai.openobserve.otelcol-contrib.plist"
+PLIST_NAME="ai.openobserve.otelcol-contrib"
 
 # Check if root
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root" 
+   echo "This script must be run as root"
    exit 1
 fi
 
 # Create directory for binary if it doesn't exist
 mkdir -p $(dirname "$BINARY_PATH")
 
-# Download the binary
-curl -L "$BINARY_URL" -o "$BINARY_PATH"
+# Download the otel-collector binary
+cd $BINARY_OPT && curl -L $BINARY_URL | tar -xz
 
-# Make the binary executable
-chmod +x "$BINARY_PATH"
+# make the binary executable
+chmod +x $BINARY_PATH
 
 # Generate a sample configuration file
 cat > /etc/otel-config.yaml <<EOL
@@ -44,9 +59,9 @@ receivers:
       load:
       memory:
       network:
-      paging:          
+      paging:
       processes:
-      process: 
+      process:
 processors:
   resourcedetection/system:
     detectors: [ "system" ]
@@ -95,6 +110,12 @@ cat <<EOF > "$PLIST_PATH"
     <string>ai.openobserve.otelcol-contrib</string>
     <key>Program</key>
     <string>/opt/openobserve-collector/otelcol-contrib</string>
+    <key>ProgramArguments</key>
+    <array>
+	<string>/opt/openobserve-collector/otelcol-contrib</string>
+	<string>--config</string>
+	<string>/etc/otel-config.yaml</string>
+    </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -103,7 +124,13 @@ cat <<EOF > "$PLIST_PATH"
 </plist>
 EOF
 
+# unloading if already present
+echo "unloading if already present"
+launchctl bootout "system/$PLIST_NAME"
+# launchctl enable "system/$PLIST_NAME"
+
 # Load the plist into launchd
+echo "Setting service to launch during system startup"
 launchctl bootstrap system "$PLIST_PATH"
 
 echo "Binary downloaded and set up to run at launch!"

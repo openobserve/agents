@@ -6,10 +6,15 @@
     <string>ai.openobserve.otelcol-contrib</string>
     <key>Program</key>
     <string>/opt/openobserve-collector/otelcol-contrib</string>
+    <key>ProgramArguments</key>
+    <array>
+	<string>/opt/openobserve-collector/otelcol-contrib</string>
+	<string>--config</string>
+	<string>/etc/otel-config.yaml</string>
+    </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
 </dict>
 </plist>
-
