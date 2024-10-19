@@ -24,6 +24,7 @@ $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" 
 $DOWNLOAD_URL = "https://zinc-public-data.s3.us-west-2.amazonaws.com/opentelemetry-collector-releases/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.zip"
 
 # Download otel-collector from the specified URL
+$ProgressPreference = 'SilentlyContinue'
 Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.zip"
 
 # Ensure the target directory for extraction exists
