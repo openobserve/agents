@@ -47,6 +47,14 @@ mv otelcol-contrib /usr/local/bin/
 # Generate a sample configuration file
 cat > /etc/otel-config.yaml <<EOL
 receivers:
+  journald:
+    directory: /run/log/journal
+    units:
+      - ssh
+      - kubelet
+      - docker
+      - containerd
+    priority: info
   filelog/std:
     include: [ /var/log/**log ]
     # start_at: beginning
