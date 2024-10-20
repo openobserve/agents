@@ -80,8 +80,6 @@ processors:
 
 extensions:
   zpages: {}
-  memory_ballast:
-    size_mib: 512
 
 exporters:
   otlphttp/openobserve:
@@ -95,7 +93,7 @@ exporters:
       stream-name: journald
 
 service:
-  extensions: [zpages, memory_ballast]
+  extensions: [zpages]
   pipelines:
     metrics:
       receivers: [hostmetrics]
