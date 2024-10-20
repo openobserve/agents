@@ -12,6 +12,7 @@ AUTH_KEY=$2
 # Ensure 'openobserve-agent' user and group exist
 if ! id -u openobserve-agent &>/dev/null; then
     useradd --system openobserve-agent
+    usermod -aG systemd-journal openobserve-agent # add user to systemd-journal so it can access journald logs
 fi
 
 if ! grep -q "^openobserve-agent:" /etc/group; then
@@ -113,11 +114,12 @@ EOL
 cat > /etc/systemd/system/otel-collector.service <<EOL
 [Unit]
 Description=OpenTelemetry Collector
-After=network.target
+After=network.target network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/otelcol-contrib --config /etc/otel-config.yaml
 Restart=always
+RestartSec=10
 User=openobserve-agent
 Group=openobserve-agent
 
