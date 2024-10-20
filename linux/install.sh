@@ -21,7 +21,7 @@ fi
 # Detect OS and architecture
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
-OTEL_VERSION="0.90.1"
+OTEL_VERSION="0.111.0"
 
 if [ "$ARCH" = "x86_64" ]; then
     ARCH="amd64"
@@ -48,13 +48,7 @@ mv otelcol-contrib /usr/local/bin/
 cat > /etc/otel-config.yaml <<EOL
 receivers:
   journald:
-    directory: /run/log/journal
-    units:
-      - ssh
-      - kubelet
-      - docker
-      - containerd
-    priority: info
+    directory: /var/log/journal
   filelog/std:
     include: [ /var/log/**log ]
     # start_at: beginning
@@ -94,6 +88,11 @@ exporters:
     endpoint: $URL
     headers:
       Authorization: "Basic $AUTH_KEY"
+  otlphttp/openobserve_journald:
+    endpoint: $URL
+    headers:
+      Authorization: "Basic $AUTH_KEY"
+      stream-name: journald
 
 service:
   extensions: [zpages, memory_ballast]
@@ -106,6 +105,10 @@ service:
       receivers: [filelog/std]
       processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
+    logs/journald:
+      receivers: [journald]
+      processors: [resourcedetection/system, memory_limiter, batch]
+      exporters: [otlphttp/openobserve_journald]
 EOL
 
 # Set up otel-collector to run as a systemd service
