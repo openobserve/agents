@@ -103,7 +103,7 @@ service:
       processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
-      receivers: [filelog/std, journald]
+      receivers: [filelog/std]
       processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 EOL
