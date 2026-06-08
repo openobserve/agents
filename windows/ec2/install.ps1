@@ -1,3 +1,42 @@
+# Define the script parameters
+param (
+    [string]$URL,
+    [string]$AUTH_KEY
+)
+
+# Validate the provided parameters
+if (-not $URL -or -not $AUTH_KEY) {
+    Write-Host "Usage: .\install.ps1 -URL <URL> -AUTH_KEY <Authorization_Key>"
+    exit 1
+}
+
+# Detect the operating system and its architecture
+$OS = "windows"
+$ARCH = $ENV:PROCESSOR_ARCHITECTURE.ToLower()
+$OTEL_VERSION = "0.111.0"
+
+# Architecture check
+$ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } elseif ($ARCH -eq "x86") { "386" } else { $ARCH }
+
+# Construct the download URL for otel-collector based on OS and architecture
+$DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.zip"
+
+# Download otel-collector from the specified URL
+$ProgressPreference = 'SilentlyContinue'
+Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.zip"
+
+# Ensure the target directory for extraction exists
+$SERVICE_NAME = "otel-collector"
+$directoryPath = "C:\${SERVICE_NAME}\"
+if (-not (Test-Path $directoryPath -PathType Container)) {
+    New-Item -Path $directoryPath -ItemType Directory
+}
+
+# Extract the downloaded archive to the target directory
+Expand-Archive "otelcol-contrib.zip" -DestinationPath $directoryPath -Force
+
+# Generate configuration file for otel-collector
+$ConfigContent = @"
 receivers:
   hostmetrics:
     collection_interval: 30s
@@ -83,3 +122,24 @@ service:
       receivers: [windowseventlog/application, windowseventlog/security, windowseventlog/setup, windowseventlog/system]
       processors: [resourcedetection/system, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
+"@
+
+# Write the configuration content to a file
+$ConfigContent | Out-File "${directoryPath}otel-config.yaml"
+
+# Define the service parameters
+$params = @{
+    Name           = $SERVICE_NAME
+    BinaryPathName = "${directoryPath}otelcol-contrib.exe --config=${directoryPath}otel-config.yaml"
+    DisplayName    = $SERVICE_NAME
+    StartupType    = "Automatic"
+    Description    = "OpenObserve otel-collector service."
+}
+
+# Create the service
+New-Service @params
+
+# Start the service
+Start-Service $SERVICE_NAME
+
+Write-Host "Otel-collector service started!"
