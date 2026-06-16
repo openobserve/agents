@@ -1,3 +1,12 @@
+# NOTE: This script is for AWS EC2 instances.
+# Before running, ensure the EC2 instance has an IAM role attached with:
+#
+#   ec2:DescribeTags
+#   ec2:DescribeInstances
+#
+# Without it, EC2 resource detection falls back to the OS hostname only and the
+# instance Name tag will not appear in your metrics and logs.
+
 # Define the script parameters
 param (
     [string]$URL,
@@ -125,6 +134,19 @@ processors:
     detectors: ["system"]
     system:
       hostname_sources: ["os"]
+  # Detects EC2 instance metadata and reads instance tags.
+  # Requires an IAM role with ec2:DescribeTags and ec2:DescribeInstances.
+  resourcedetection/ec2:
+    detectors: ["ec2"]
+    ec2:
+      tags:
+        - ^Name$
+  # Sets host.name to the EC2 instance Name tag value for easier identification in dashboards.
+  resource/hostname:
+    attributes:
+      - key: host.name
+        from_attribute: ec2.tag.Name
+        action: upsert
   memory_limiter:
     check_interval: 1s
     limit_percentage: 75
@@ -148,11 +170,11 @@ service:
   pipelines:
     metrics:
       receivers: [hostmetrics, windowsperfcounters/processor, windowsperfcounters/memory]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      processors: [resourcedetection/system, resourcedetection/ec2, resource/hostname, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
       receivers: [windowseventlog/application, windowseventlog/security, windowseventlog/setup, windowseventlog/system]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      processors: [resourcedetection/system, resourcedetection/ec2, resource/hostname, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 "@
 
