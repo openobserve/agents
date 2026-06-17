@@ -56,12 +56,18 @@ receivers:
       # cpu: not implemented on mac (no cgo)
       # disk: not implemented on mac (no cgo)
       filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
       load:
       memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
       network:
       paging:
       processes:
-      process:
+      process:      
 processors:
   resourcedetection/system:
     detectors: [ "system" ]

@@ -7,6 +7,7 @@ if ($Service) {
 
 # Remove otel-collector files
 Remove-Item -Path "C:\otel-collector" -Recurse -Force -ErrorAction SilentlyContinue
+sc.exe delete otel-collector
 
 Write-Host "otel-collector uninstalled successfully!"
 

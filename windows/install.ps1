@@ -13,7 +13,7 @@ if (-not $URL -or -not $AUTH_KEY) {
 # Detect the operating system and its architecture
 $OS = "windows"
 $ARCH = $ENV:PROCESSOR_ARCHITECTURE.ToLower()
-$OTEL_VERSION = "0.90.1"
+$OTEL_VERSION = "0.128.0"
 
 # architecture check
 $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } elseif ($ARCH -eq "x86") { "386" } else { $ARCH }
@@ -21,11 +21,11 @@ $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" 
 # Construct the download URL for otel-collector based on OS and architecture
 # $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
 
-$DOWNLOAD_URL = "https://zinc-public-data.s3.us-west-2.amazonaws.com/opentelemetry-collector-releases/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.zip"
+$DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
 
 # Download otel-collector from the specified URL
 $ProgressPreference = 'SilentlyContinue'
-Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.zip"
+Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.tar.gz"
 
 # Ensure the target directory for extraction exists
 $SERVICE_NAME="otel-collector"
@@ -36,7 +36,9 @@ if (-not (Test-Path $directoryPath -PathType Container)) {
 
 # Extract the downloaded archive to the target directory
 # tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
-Expand-Archive "otelcol-contrib.zip" -DestinationPath $directoryPath -Force
+# Expand-Archive "otelcol-contrib.zip" -DestinationPath $directoryPath -Force
+tar -xvzf "otelcol-contrib.tar.gz" -C $directoryPath
+
 
 # Generate a sample configuration file for otel-collector
 $ConfigContent = @"
@@ -45,33 +47,49 @@ receivers:
     collection_interval: 30s
     scrapers:
       cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+          system.cpu.logical.count:
+            enabled: true
       disk:
       filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
       load:
       memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
       network:
-      paging:          
+      paging:
       processes:
-      # process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
-      
+      process:
+        metrics:
+          process.cpu.utilization:
+            enabled: true
+          process.memory.utilization:
+            enabled: true
+
   windowsperfcounters/memory:
+    collection_interval: 30s
     metrics:
       bytes.committed:
-        description: the number of bytes committed to memory
+        description: Number of bytes committed to memory
         unit: By
         gauge:
-    collection_interval: 30s
     perfcounters:
-      - object: Memory
+      - object: "Memory"
         counters:
-          - name: Committed Bytes
+          - name: "Committed Bytes"
             metric: bytes.committed
 
   windowsperfcounters/processor:
     collection_interval: 1m
     metrics:
       processor.time:
-        description: active and idle time of the processor
+        description: Active vs. idle CPU time
         unit: "%"
         gauge:
     perfcounters:
@@ -80,40 +98,36 @@ receivers:
         counters:
           - name: "% Processor Time"
             metric: processor.time
-            attributes:
-              state: active
+            attributes: { state: active }
       - object: "Processor"
-        instances: [1, 2]
+        instances: ["1", "2"]
         counters:
           - name: "% Idle Time"
             metric: processor.time
-            attributes:
-              state: idle
-  windowseventlog/application:
-    channel: application
-  windowseventlog/security:
-    channel: security
-  windowseventlog/setup:
-    channel: setup
-  windowseventlog/system:
-    channel: system
+            attributes: { state: idle }
+
+  windowseventlog/application: { channel: application }
+  windowseventlog/security:    { channel: security }
+  windowseventlog/setup:       { channel: setup }
+  windowseventlog/system:      { channel: system }
+
 processors:
-  resourcedetection/system:
+  resourcedetection:
     detectors: ["system"]
     system:
       hostname_sources: ["os"]
+
   memory_limiter:
     check_interval: 1s
     limit_percentage: 75
     spike_limit_percentage: 15
+
   batch:
     send_batch_size: 10000
     timeout: 10s
 
 extensions:
   zpages: {}
-  memory_ballast:
-    size_mib: 512
 
 exporters:
   otlphttp/openobserve:
@@ -123,15 +137,21 @@ exporters:
       Authorization: "Basic $AUTH_KEY"
 
 service:
-  extensions: [zpages, memory_ballast]
+  extensions: [zpages]
   pipelines:
     metrics:
-      receivers: [windowsperfcounters/processor, windowsperfcounters/memory, hostmetrics]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      receivers: [windowsperfcounters/processor,
+                  windowsperfcounters/memory,
+                  hostmetrics]
+      processors: [resourcedetection, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
+
     logs:
-      receivers: [windowseventlog/application,windowseventlog/security,windowseventlog/setup,windowseventlog/system]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      receivers: [windowseventlog/application,
+                  windowseventlog/security,
+                  windowseventlog/setup,
+                  windowseventlog/system]
+      processors: [resourcedetection, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 "@
 

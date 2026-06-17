@@ -58,12 +58,23 @@ receivers:
     collection_interval: 30s
     scrapers:
       cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+          system.cpu.logical.count:
+            enabled: true
       disk:
       filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
       load:
       memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
       network:
-      paging:          
+      paging:
       processes:
       # process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
 processors:
@@ -130,6 +141,7 @@ EOL
 # Reload systemd and enable otel-collector service
 systemctl daemon-reload
 systemctl enable otel-collector
+systemctl stop otel-collector
 systemctl start otel-collector
 
 echo "Otel-collector service started!"
