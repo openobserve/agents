@@ -24,22 +24,27 @@ wget https://raw.githubusercontent.com/openobserve/agents/main/linux/uninstall.s
 
 ## Mac OS X
 
+Collects host metrics, log files from the standard macOS locations, and the macOS
+unified log. See [mac/README.md](mac/README.md) for details and tuning.
+
 ### Install
 
+macOS does not ship `wget`, so these use `curl`.
+
 ```bash
-wget https://raw.githubusercontent.com/openobserve/agents/main/mac/install.sh && chmod +x install.sh && sudo ./install.sh {URL} {authorization_token}
+curl -O https://raw.githubusercontent.com/openobserve/agents/main/mac/install.sh && chmod +x install.sh && sudo ./install.sh {URL} {authorization_token}
 ```
 
 e.g.
 
 ```bash
-wget https://raw.githubusercontent.com/openobserve/agents/main/mac/install.sh && chmod +x install.sh && sudo ./install.sh https://api.openobserve.com/api/your_org/ cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM=
+curl -O https://raw.githubusercontent.com/openobserve/agents/main/mac/install.sh && chmod +x install.sh && sudo ./install.sh https://api.openobserve.com/api/your_org/ cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM=
 ```
 
 ### Uninstall
 
 ```bash
-wget https://raw.githubusercontent.com/openobserve/agents/main/mac/uninstall.sh && chmod +x uninstall.sh && sudo ./uninstall.sh
+curl -O https://raw.githubusercontent.com/openobserve/agents/main/mac/uninstall.sh && chmod +x uninstall.sh && sudo ./uninstall.sh
 ```
 
 ## Windows
