@@ -31,7 +31,7 @@ fi
 # Detect OS and architecture
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
-OTEL_VERSION="0.156.0"
+OTEL_VERSION="0.163.1"
 
 case "$ARCH" in
     x86_64)  ARCH="amd64" ;;
@@ -87,10 +87,23 @@ receivers:
       processes:
       # process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
 processors:
-  resourcedetection/system:
-    detectors: ["system"]
+  # Detects plain hosts, AWS EC2, GCP Compute Engine and Azure VMs; off their cloud
+  # the cloud detectors add nothing. "system" comes first because the first detector
+  # to set an attribute wins, so host.name stays the OS hostname everywhere. Reading
+  # the EC2 Name tag needs an IAM role with ec2:DescribeTags; without it the tag is skipped.
+  resourcedetection:
+    detectors: ["system", "ec2", "gcp", "azure"]
+    ec2:
+      tags:
+        - ^Name$
     system:
       hostname_sources: ["os"]
+  # Sets host.name to the EC2 instance Name tag when present; a no-op otherwise.
+  resource/hostname:
+    attributes:
+      - key: host.name
+        from_attribute: ec2.tag.Name
+        action: upsert
   memory_limiter:
     check_interval: 1s
     limit_percentage: 75
@@ -118,15 +131,15 @@ service:
   pipelines:
     metrics:
       receivers: [hostmetrics]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      processors: [resourcedetection, resource/hostname, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
       receivers: [filelog/std]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      processors: [resourcedetection, resource/hostname, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs/journald:
       receivers: [journald]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      processors: [resourcedetection, resource/hostname, memory_limiter, batch]
       exporters: [otlphttp/openobserve_journald]
 EOL
 
@@ -135,6 +148,7 @@ cat > /etc/systemd/system/otel-collector.service <<EOL
 [Unit]
 Description=OpenTelemetry Collector
 After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/otelcol-contrib --config /etc/otel-config.yaml

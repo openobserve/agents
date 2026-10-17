@@ -2,6 +2,11 @@
 
 Scripts that configure and install the Open Observe agent on various platforms.
 
+The Linux and Windows scripts work on plain hosts and auto-detect AWS EC2, GCP Compute
+Engine and Azure VMs, adding cloud resource attributes. On EC2, `host.name` is set from
+the instance `Name` tag when the instance has an IAM role with `ec2:DescribeTags` and
+can reach the EC2 API; otherwise `host.name` is the OS hostname.
+
 ## Linux
 
 ### Install
@@ -51,7 +56,7 @@ curl -O https://raw.githubusercontent.com/openobserve/agents/main/mac/uninstall.
 
 ### Install
 
-From powershell terminal:
+Requires Windows 10 1803+ or Windows Server 2019+ (for the built-in `tar`). From powershell terminal:
 
 ```powershell
 Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/install.ps1 -OutFile install.ps1 ; .\install.ps1 -URL <URL> -AUTH_KEY <Authorization_Key>
@@ -63,7 +68,7 @@ e.g.
 Invoke-WebRequest -Uri https://raw.githubusercontent.com/openobserve/agents/main/windows/install.ps1 -OutFile install.ps1 ; .\install.ps1 -URL http://localhost:5080/api/default -AUTH_KEY cm9vdEBowWjJSanhscWtSbVB5S0VE
 ```
 
-Now run `services.msc` and start the `otel-collector service` service.
+The script installs and starts the `otel-collector` Windows service.
 
 ![Windows logs](screenshots/windows_logs.png)
 

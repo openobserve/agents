@@ -4,41 +4,84 @@ param (
     [string]$AUTH_KEY
 )
 
+$ErrorActionPreference = "Stop"
+
 # Validate the provided parameters
 if (-not $URL -or -not $AUTH_KEY) {
     Write-Host "Usage: .\install.ps1 -URL <URL> -AUTH_KEY <Authorization_Key>"
     exit 1
 }
 
+# The collector ships for Windows only as .tar.gz, which needs the built-in tar.exe
+if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: tar.exe not found. Windows 10 1803+ or Windows Server 2019+ is required."
+    exit 1
+}
+
+# GitHub requires TLS 1.2; older Windows/Server defaults to TLS 1.0 and fails the TLS handshake
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 # Detect the operating system and its architecture
 $OS = "windows"
 $ARCH = $ENV:PROCESSOR_ARCHITECTURE.ToLower()
-$OTEL_VERSION = "0.90.1"
+$OTEL_VERSION = "0.163.1"
 
-# architecture check
+# Architecture check
 $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } elseif ($ARCH -eq "x86") { "386" } else { $ARCH }
 
-# Construct the download URL for otel-collector based on OS and architecture
-# $DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
+# OpenTelemetry collector publishes Windows assets ONLY as .tar.gz (no .zip), so download that
+$DOWNLOAD_URL = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.tar.gz"
 
-$DOWNLOAD_URL = "https://zinc-public-data.s3.us-west-2.amazonaws.com/opentelemetry-collector-releases/otelcol-contrib_${OTEL_VERSION}_${OS}_${ARCH}.zip"
+$ARCHIVE = "otelcol-contrib.tar.gz"
 
 # Download otel-collector from the specified URL
 $ProgressPreference = 'SilentlyContinue'
-Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile "otelcol-contrib.zip"
-
-# Ensure the target directory for extraction exists
-$SERVICE_NAME="otel-collector"
-$directoryPath = "C:\${SERVICE_NAME}\"
-if (-not (Test-Path $directoryPath -PathType Container)) {
-    New-Item -Path $directoryPath -ItemType Directory
+Write-Host "Downloading $DOWNLOAD_URL"
+try {
+    Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $ARCHIVE -UseBasicParsing
+} catch {
+    Write-Host "ERROR: Failed to download otel-collector from $DOWNLOAD_URL"
+    Write-Host $_.Exception.Message
+    exit 1
 }
 
-# Extract the downloaded archive to the target directory
-# tar -xzf "otelcol-contrib.tar.gz" -C $directoryPath
-Expand-Archive "otelcol-contrib.zip" -DestinationPath $directoryPath -Force
+# Sanity check: make sure we actually got a real archive and not an empty/HTML error page
+if (-not (Test-Path $ARCHIVE) -or (Get-Item $ARCHIVE).Length -lt 1024) {
+    Write-Host "ERROR: Downloaded archive is missing or too small. Aborting."
+    exit 1
+}
 
-# Generate a sample configuration file for otel-collector
+$SERVICE_NAME = "otel-collector"
+$directoryPath = "C:\${SERVICE_NAME}\"
+
+# Stop any existing service before extracting, so re-runs don't fail on the running
+# (and therefore locked) otelcol-contrib.exe
+if (Get-Service $SERVICE_NAME -ErrorAction SilentlyContinue) {
+    Write-Host "Existing service found, stopping it first."
+    Stop-Service $SERVICE_NAME -ErrorAction SilentlyContinue
+}
+
+# Ensure the target directory for extraction exists
+if (-not (Test-Path $directoryPath -PathType Container)) {
+    New-Item -Path $directoryPath -ItemType Directory | Out-Null
+}
+
+# Extract using tar (built into Windows 10 1803+ and Server 2019+)
+Write-Host "Extracting to $directoryPath"
+tar -xzf $ARCHIVE -C $directoryPath
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: tar extraction failed (exit code $LASTEXITCODE)."
+    exit 1
+}
+
+# Verify the binary landed where we expect
+$binaryPath = "${directoryPath}otelcol-contrib.exe"
+if (-not (Test-Path $binaryPath)) {
+    Write-Host "ERROR: $binaryPath not found after extraction. Aborting."
+    exit 1
+}
+
+# Generate configuration file for otel-collector
 $ConfigContent = @"
 receivers:
   hostmetrics:
@@ -50,28 +93,14 @@ receivers:
       load:
       memory:
       network:
-      paging:          
-      processes:
-      # process: # a bug in the process scraper causes the collector to throw errors so disabling it for now
-      
-  windowsperfcounters/memory:
-    metrics:
-      bytes.committed:
-        description: the number of bytes committed to memory
-        unit: By
-        gauge:
-    collection_interval: 30s
-    perfcounters:
-      - object: Memory
-        counters:
-          - name: Committed Bytes
-            metric: bytes.committed
+      paging:
+      # process: # can cause errors on some Windows configurations, disabled by default
 
   windowsperfcounters/processor:
     collection_interval: 1m
     metrics:
       processor.time:
-        description: active and idle time of the processor
+        description: Active and idle time of the processor
         unit: "%"
         gauge:
     perfcounters:
@@ -83,12 +112,26 @@ receivers:
             attributes:
               state: active
       - object: "Processor"
-        instances: [1, 2]
+        instances: "*"
         counters:
           - name: "% Idle Time"
             metric: processor.time
             attributes:
               state: idle
+
+  windowsperfcounters/memory:
+    collection_interval: 30s
+    metrics:
+      bytes.committed:
+        description: Number of bytes committed to memory
+        unit: By
+        gauge:
+    perfcounters:
+      - object: Memory
+        counters:
+          - name: Committed Bytes
+            metric: bytes.committed
+
   windowseventlog/application:
     channel: application
   windowseventlog/security:
@@ -97,11 +140,25 @@ receivers:
     channel: setup
   windowseventlog/system:
     channel: system
+
 processors:
-  resourcedetection/system:
-    detectors: ["system"]
+  # Detects plain hosts, AWS EC2, GCP Compute Engine and Azure VMs; off their cloud
+  # the cloud detectors add nothing. "system" comes first because the first detector
+  # to set an attribute wins, so host.name stays the OS hostname everywhere. Reading
+  # the EC2 Name tag needs an IAM role with ec2:DescribeTags; without it the tag is skipped.
+  resourcedetection:
+    detectors: ["system", "ec2", "gcp", "azure"]
+    ec2:
+      tags:
+        - ^Name$
     system:
       hostname_sources: ["os"]
+  # Sets host.name to the EC2 instance Name tag when present; a no-op otherwise.
+  resource/hostname:
+    attributes:
+      - key: host.name
+        from_attribute: ec2.tag.Name
+        action: upsert
   memory_limiter:
     check_interval: 1s
     limit_percentage: 75
@@ -112,43 +169,53 @@ processors:
 
 extensions:
   zpages: {}
-  memory_ballast:
-    size_mib: 512
 
 exporters:
   otlphttp/openobserve:
     endpoint: $URL
     headers:
-      stream-name: windows
       Authorization: "Basic $AUTH_KEY"
+      stream-name: windows
 
 service:
-  extensions: [zpages, memory_ballast]
+  extensions: [zpages]
   pipelines:
     metrics:
-      receivers: [windowsperfcounters/processor, windowsperfcounters/memory, hostmetrics]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      receivers: [hostmetrics, windowsperfcounters/processor, windowsperfcounters/memory]
+      processors: [resourcedetection, resource/hostname, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
     logs:
-      receivers: [windowseventlog/application,windowseventlog/security,windowseventlog/setup,windowseventlog/system]
-      processors: [resourcedetection/system, memory_limiter, batch]
+      receivers: [windowseventlog/application, windowseventlog/security, windowseventlog/setup, windowseventlog/system]
+      processors: [resourcedetection, resource/hostname, memory_limiter, batch]
       exporters: [otlphttp/openobserve]
 "@
 
-# Write the configuration content to a file
-$ConfigContent | Out-File "${directoryPath}otel-config.yaml"
+# Write the configuration content to a file (UTF-8 without BOM so the collector parses YAML cleanly)
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText("${directoryPath}otel-config.yaml", $ConfigContent, $utf8NoBom)
 
 # Define the service parameters
 $params = @{
-  Name           = $SERVICE_NAME
-  BinaryPathName = "${directoryPath}otelcol-contrib.exe --config=${directoryPath}otel-config.yaml"
-  DisplayName    = $SERVICE_NAME
-  StartupType    = "Automatic"
-  Description    = "OpenObserve otel-collector service."
+    Name           = $SERVICE_NAME
+    BinaryPathName = "${binaryPath} --config=${directoryPath}otel-config.yaml"
+    DisplayName    = $SERVICE_NAME
+    StartupType    = "Automatic"
+    Description    = "OpenObserve otel-collector service."
 }
 
-# Create the service
-New-Service @params
+# Create the service unless a previous install already did (same binary and config paths)
+if (-not (Get-Service $SERVICE_NAME -ErrorAction SilentlyContinue)) {
+    New-Service @params
+}
 
 # Start the service
 Start-Service $SERVICE_NAME
+
+# Report the real state instead of assuming success
+$svc = Get-Service $SERVICE_NAME
+if ($svc.Status -eq "Running") {
+    Write-Host "Otel-collector service started successfully!"
+} else {
+    Write-Host "Otel-collector service is in state: $($svc.Status). Check C:\${SERVICE_NAME}\ and Event Viewer for details."
+    exit 1
+}
