@@ -33,6 +33,8 @@ re-run without the flags to recover.
 ```bash
 sudo ./install.sh {URL} {authorization_token} --trace-ports 8080
 sudo ./install.sh {URL} {authorization_token} --trace-exe '/opt/checkout/*' --service-name checkout
+# Interpreted apps (python3, node, java) are matched by command line
+sudo ./install.sh {URL} {authorization_token} --trace-cmd '*reports.py*'
 ```
 
 `--trace-ports` takes ports and ranges; `--trace-exe` (executable path) and

@@ -19,6 +19,9 @@ sudo ./install.sh <URL> <AUTH_KEY> --trace-ports 8080
 
 # Trace an app by executable path, and report it as "checkout"
 sudo ./install.sh <URL> <AUTH_KEY> --trace-exe '/opt/checkout/*' --service-name checkout
+
+# Trace a Python app by its command line (its executable is just python3)
+sudo ./install.sh <URL> <AUTH_KEY> --trace-cmd '*reports.py*'
 ```
 
 Then send a request to the app and look for its trace in OpenObserve. To turn
