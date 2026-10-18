@@ -129,7 +129,21 @@ Things to know when choosing:
 - **Selecting broadly is invasive.** OBI injects an agent into every Java and
   Node.js process it matches.
 - **Don't select apps that already send their own traces** through an
-  OpenTelemetry SDK, or you get duplicate spans.
+  OpenTelemetry SDK, or you may get duplicate spans. The `already-instrumented`
+  rule only limits them. Once OBI sees a process make an HTTP call to a path
+  ending in `/v1/traces` (or a gRPC trace export), it stops sending all of that
+  process's spans, including database and outgoing calls the SDK may not
+  record. This is a guess from the path: any app that calls such a path, an
+  OTLP proxy for example, loses its OBI spans too, and so does an app that lets
+  its users choose a URL it fetches (a webhook, for example), which hides that
+  process's later activity until it restarts. This is OBI's own default; where
+  that matters more than duplicates, delete the rule by hand (see [Editing the
+  rules by hand](#editing-the-rules-by-hand)). Before that first call, and
+  again after every restart of the app or the collector, spans may go out
+  twice. The call counts over TLS where OBI can see the traffic, but not if it
+  gets an error response. An app exporting through a TLS library OBI doesn't
+  hook (such as rustls) keeps getting OBI spans. The rule doesn't stop OBI
+  injecting its agent into a selected Java or Node.js app.
 - The collector itself and Docker's `docker-proxy` are always excluded, so a
   broad selector doesn't trace the collector's own exports or duplicate container
   spans.
@@ -217,6 +231,13 @@ receivers:
         match:
           process:
             exe_path_glob: ['*/otelcol-contrib', '*/docker-proxy']
+      - action: exclude
+        name: already-instrumented   # apps that export their own traces
+        match:
+          process:
+            exports_otlp:
+              port: 4317
+              protocol: protobuf
       - action: include
         name: ports
         match:
@@ -238,6 +259,7 @@ Process conditions available in a rule (conditions in one rule must all match):
 | `cmd_args_glob` / `cmd_args_regex` | Command-line arguments | `['*gunicorn*']` |
 | `language_glob` / `language_regex` | Detected runtime: `go`, `java`, `dotnet`, `python`, `ruby`, `nodejs`, `rust`, `cpp`, `php`, `generic` | `['java', 'nodejs']` |
 | `containers_only` | Only processes inside containers | `true` |
+| `exports_otlp` | Processes seen exporting their own traces; exclude rules only, as the rule's only condition | `{port: 4317, protocol: protobuf}` |
 
 There is no condition for a systemd unit or cgroup; use the executable path or
 command line.
@@ -248,8 +270,14 @@ Rules for editing:
   include rule.
 - **Use globs or regexes, not both.** The generated rules use globs, so added
   rules must too, or all of them must be rewritten as regexes.
-- **Keep the `infra` exclusion.** With a `rules` section present, OBI drops its
-  built-in exclusions, and would otherwise trace the collector itself.
+- **Keep the `infra` exclusion**, and `already-instrumented` unless you have
+  decided against it (see [Choosing what to trace](#choosing-what-to-trace)).
+  With a `rules` section present, OBI drops its built-in exclusions, and would
+  otherwise trace the collector itself and send spans for apps that export
+  their own.
+  `exports_otlp` must be the only condition in its rule. HTTP exports to any
+  port are matched by their path; the port is only a fallback for some gRPC
+  exports.
 - Unknown keys are rejected, so a typo fails at start rather than silently
   disabling a rule.
 
@@ -388,6 +416,11 @@ were tested on the same kind of VM, under steady load for 6 minutes:
 - **Traces across services**, all over plain-text HTTP: Go to Go, Go to Java
   and Node.js to Go each formed one trace on every request, with the
   `traceparent` header arriving at the back end.
+
+An app instrumented with the OpenTelemetry SDK, exporting over plain HTTP, got
+OBI spans only for its first 1.5 seconds of traffic, before its first export,
+and again for under 2 seconds after a collector restart. An uninstrumented app
+beside it was traced throughout.
 
 Not yet tested: .NET apps, Go's header injection over TLS, cloud hosts, and
 kernels where OBI fails or turns propagation off after start-up.

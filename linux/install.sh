@@ -186,11 +186,13 @@ if $TRACING; then
 
     # Built-in exclusions don't apply once rules are given, so the infra rule
     # keeps a broad selector from tracing the collector itself or Docker's port
-    # forwarder.
+    # forwarder, and already-instrumented stops OBI sending spans for a process
+    # once it sees that process export its own traces.
     OBI_RECEIVER="
   # eBPF tracing (OBI), generated from the install flags. When editing the rules:
   # exclude rules must come before include rules, and rules must all use globs
-  # (*_glob) or all use regexes (*_regex), not both.
+  # (*_glob) or all use regexes (*_regex), not both. Keep the infra exclusion;
+  # exports_otlp must be alone in its rule.
   obi:
     version: \"2.0\"
     safety:
@@ -208,7 +210,14 @@ if $TRACING; then
         name: infra
         match:
           process:
-            exe_path_glob: ['*/otelcol-contrib', '*/docker-proxy']$OBI_RULES"
+            exe_path_glob: ['*/otelcol-contrib', '*/docker-proxy']
+      - action: exclude
+        name: already-instrumented
+        match:
+          process:
+            exports_otlp:
+              port: 4317
+              protocol: protobuf$OBI_RULES"
 
     TRACES_PROCESSORS="resourcedetection, resource/hostname"
     if [ -n "$SERVICE_NAME" ]; then
