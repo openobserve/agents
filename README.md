@@ -21,6 +21,29 @@ e.g.
 wget https://raw.githubusercontent.com/openobserve/agents/main/linux/install.sh && chmod +x install.sh && sudo ./install.sh https://api.openobserve.com/api/your_org/ cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM=
 ```
 
+### Tracing (optional)
+
+Add `--trace-*` flags to also trace selected processes with eBPF, without code
+changes. This runs the collector as root and needs Linux 5.8+ (or RHEL-family
+4.18 with the eBPF backports) with BTF. If the host can't run it, the install fails
+without touching the running collector. If tracing fails right after the collector restarts, the install
+stops and disables the collector (logs and metrics too) and exits with an error;
+re-run without the flags to recover.
+
+```bash
+sudo ./install.sh {URL} {authorization_token} --trace-ports 8080
+sudo ./install.sh {URL} {authorization_token} --trace-exe '/opt/checkout/*' --service-name checkout
+# Interpreted apps (python3, node, java) are matched by command line
+sudo ./install.sh {URL} {authorization_token} --trace-cmd '*reports.py*'
+```
+
+`--trace-ports` takes ports and ranges; `--trace-exe` (executable path) and
+`--trace-cmd` (command line) take globs. All three can be repeated. `--service-name`
+reports every traced process under one name. Traced processes add a W3C
+`traceparent` header to their outgoing plain-text HTTP requests, so traces continue
+across hosts. Re-run without the flags to turn tracing off. See [obi.md](obi.md)
+for details.
+
 ### Uninstall
 
 ```bash
