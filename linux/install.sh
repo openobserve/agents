@@ -450,6 +450,13 @@ if grep -q 'unable to attach java agent to process' <<<"$LOGS"; then
     echo "WARNING: OBI could not attach its Java agent to some processes; they are traced with less detail:"
     grep 'unable to attach java agent to process' <<<"$LOGS"
 fi
+# Java and Node.js injections run one at a time, and a Node.js one whose inspector
+# doesn't open takes about 5 seconds, so some results can land after this check.
+if NODE=$(grep -E "couldn't attach NodeJS injector|skipping Node.js agent injection|unable to capture stable node injection target" <<<"$LOGS"); then
+    echo "WARNING: OBI did not inject its Node.js agent into some processes; they are traced with less detail:"
+    echo "$NODE"
+    echo "More may follow; check with: journalctl -u otel-collector | grep -E \"NodeJS injector|skipping Node.js|node injection target\""
+fi
 if grep -q 'context propagation is disabled' <<<"$LOGS"; then
     echo "WARNING: OBI turned off trace propagation on this kernel, so traces are not linked across hosts."
 fi

@@ -55,7 +55,7 @@ captured only in plain text.
 |---|---|---|
 | **Go** | Best coverage. Also hooks Go's own libraries (net/http, gRPC, database/sql, Redis and Kafka clients) and tracks context across goroutines. | Secure Boot's lockdown disables part of it. |
 | **Java** | OBI injects its Java agent at runtime; follows thread pools and virtual threads. | No agent (network-level spans only) for JVMs started with `-XX:+DisableAttachMechanism` or `-Xrs`, unless they also set `-XX:+StartAttachListener`. |
-| **Node.js** | Injected through the inspector; follows async calls. | No agent (network-level spans only) for apps with their own SIGUSR1 handler, unless the inspector is already open. |
+| **Node.js** | Injected through the inspector, which OBI opens by sending the process SIGUSR1; follows async calls. | No agent (network-level spans only) for apps with their own SIGUSR1 handler, unless the inspector is already open. See [Limitations](#limitations). |
 | **Python** | asyncio context tracked on CPython 3.9–3.14. | Free-threaded builds unsupported. |
 | **Rust, C, C++** | Plain-text traffic, and TLS through OpenSSL. | TLS from other libraries (rustls, statically linked TLS) is probably not visible. |
 
@@ -176,8 +176,10 @@ service is running, as before.)
   `--trace-*` flags, or fix the cause (usually privileges or kernel support) and
   re-run with them; both turn the collector back on.
 - **Some processes couldn't be traced** (`couldn't trace process`), **or are
-  traced with less detail**: OBI couldn't attach its Java agent, or turned off
-  trace propagation on this kernel (see [Limitations](#limitations)). The script
+  traced with less detail**: OBI logged that it couldn't attach its Java agent,
+  didn't inject its Node.js agent, or turned off trace propagation on this
+  kernel (see [Limitations](#limitations)). Only messages logged before the
+  check runs are caught. The script
   prints a warning and finishes normally, since other processes, logs and
   metrics keep working.
 - **No selected process was picked up yet**: the script prints a warning and
@@ -266,6 +268,23 @@ Rules for editing:
   propagation is disabled` (the installer warns). On kernels before 6.4,
   keep-alive connections opened before the collector started carry no header
   until the app reconnects.
+- **OBI can trigger a Node.js app's own SIGUSR1 handler.** Before sending
+  SIGUSR1, OBI looks for an app handler in the Node.js runtime. Where it can't
+  (for example Node.js builds that link libuv as a shared library, such as
+  Ubuntu's `nodejs` package), it instead searches the app's `.js`, `.ts`, `.mjs`
+  and `.cjs` files for `SIGUSR1` in quotes. The search skips directories named
+  like dependencies, build output or system folders (`node_modules`, `dist`,
+  `build`, `lib`, `srv` and others) wherever they appear, including the app's
+  own directory. A handler the search misses (in a dependency, in compiled
+  output, in a `lib/` folder, or with a name built at run time) runs whenever
+  OBI sends the signal: each time the app or the collector starts, including on
+  every re-run of the installer. The app gets no agent either, and the
+  installer warns if the failure is logged during its check. What the handler
+  does is up to the app: in testing, apps that only logged kept serving. On
+  these builds, don't select apps whose SIGUSR1 handler does something you
+  don't want triggered, such as a heap dump or a shutdown. Conversely, a quoted
+  `SIGUSR1` anywhere the search reads stops injection, even if it isn't a
+  handler; only lines that start with a comment are ignored.
 - No context propagation for database, messaging or cache protocols.
 - Connections and prepared statements opened before OBI starts may lack query
   text or method names.
@@ -351,10 +370,27 @@ The back end received the `traceparent` header whether or not it was traced
 itself, and none with propagation set to `disabled`. With `disabled`, two
 services on the same host were still linked into one trace.
 
-Not yet tested: Java, Go and Node.js apps (including Go's header injection over
-TLS), cloud hosts, and kernels where OBI fails or turns propagation off after
-start-up. None of the OBI errors and warnings the installer scans for occurred
-in testing.
+Java (OpenJDK 21), Node.js (Ubuntu's `nodejs` 18) and Go (1.22) HTTP servers
+were tested on the same kind of VM, under steady load for 6 minutes:
+
+- **Java and Node.js** got their agents injected, stayed up, and showed no
+  measurable change in latency. The JVM's memory grew by about 30 MB for the
+  agent, and the JDK printed `A Java agent has been loaded dynamically` to the
+  app's own stderr. A JVM started with `-XX:+DisableAttachMechanism` got no
+  agent, the installer warned, and its server spans still arrived.
+- **A Node.js app with its own SIGUSR1 handler** was skipped when the handler
+  was written as `process.on('SIGUSR1', …)` in the app's own files, and still
+  got network-level spans. With the handler in `dist/`, in `node_modules/`, or
+  with the signal name built at run time, the handler ran on each collector
+  start, no agent was injected, and the app kept serving (see
+  [Limitations](#limitations)). The installer's warning listed only the
+  failures logged within its 10-second check.
+- **Traces across services**, all over plain-text HTTP: Go to Go, Go to Java
+  and Node.js to Go each formed one trace on every request, with the
+  `traceparent` header arriving at the back end.
+
+Not yet tested: .NET apps, Go's header injection over TLS, cloud hosts, and
+kernels where OBI fails or turns propagation off after start-up.
 
 ## References
 
