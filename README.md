@@ -25,8 +25,8 @@ wget https://raw.githubusercontent.com/openobserve/agents/main/linux/install.sh 
 
 Add `--trace-*` flags to also trace selected processes with eBPF, without code
 changes. This runs the collector as root and needs Linux 5.8+ (or RHEL-family
-4.18) with BTF. If the host can't run it, the install fails without touching the
-running collector. If tracing fails right after the collector restarts, the install
+4.18 with the eBPF backports) with BTF. If the host can't run it, the install fails
+without touching the running collector. If tracing fails right after the collector restarts, the install
 stops and disables the collector (logs and metrics too) and exits with an error;
 re-run without the flags to recover.
 
