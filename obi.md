@@ -1,0 +1,361 @@
+# eBPF tracing on Linux (OBI)
+
+The Linux install script ([linux/install.sh](linux/install.sh)) can also trace the
+applications on a host, with no code changes and no SDK. It uses OBI
+(OpenTelemetry eBPF Instrumentation), which runs inside the collector the script
+already installs, as its `obi` receiver.
+
+Tracing is off by default and turned on per host with `--trace-*` flags. The
+`obi` receiver is at **alpha** stability in otelcol-contrib 0.163.1 (OBI v0.15.2):
+span names and attributes can still change between collector releases.
+
+## Quick start
+
+Download `install.sh` as shown in the [README](README.md#install), then:
+
+```bash
+# Trace whatever serves on port 8080
+sudo ./install.sh <URL> <AUTH_KEY> --trace-ports 8080
+
+# Trace an app by executable path, and report it as "checkout"
+sudo ./install.sh <URL> <AUTH_KEY> --trace-exe '/opt/checkout/*' --service-name checkout
+```
+
+Then send a request to the app and look for its trace in OpenObserve. To turn
+tracing off, re-run the script without the `--trace-*` flags.
+
+## Requirements
+
+- Linux on amd64 or arm64, kernel 5.8 or later (or a RHEL-family 4.18 kernel
+  with the eBPF backports), with kernel BTF (`/sys/kernel/btf/vmlinux` or one of libbpf's fallback paths).
+  OBI checks both and the install fails if either is missing.
+- systemd.
+- **The collector runs as root while tracing is on.** Loading eBPF programs,
+  attaching to other users' processes and injecting the Java and Node.js agents
+  need root-level privileges (see [Why root](#why-root)). Without tracing it runs
+  as the unprivileged `openobserve-agent` user, as before.
+
+Windows and macOS are not supported.
+
+## What gets traced
+
+OBI traces a process only if a flag selects it (see
+[Choosing what to trace](#choosing-what-to-trace)) and the process sends or
+receives requests in a supported protocol: HTTP/1.x, HTTP/2, gRPC, SQL (MySQL,
+PostgreSQL, MSSQL), Redis, MongoDB, Kafka, NATS, AMQP 1.0, MQTT and more. It
+reads requests at the kernel socket layer, so plain-text traffic is recognised
+the same way from any language. For most protocols, TLS traffic is captured
+through OpenSSL and Go TLS hooks, without decryption; MQTT, NATS and AMQP are
+captured only in plain text.
+
+| Runtime | What you get | Caveats |
+|---|---|---|
+| **Go** | Best coverage. Also hooks Go's own libraries (net/http, gRPC, database/sql, Redis and Kafka clients) and tracks context across goroutines. | Secure Boot's lockdown disables part of it. |
+| **Java** | OBI injects its Java agent at runtime; follows thread pools and virtual threads. | No agent (network-level spans only) for JVMs started with `-XX:+DisableAttachMechanism` or `-Xrs`, unless they also set `-XX:+StartAttachListener`. |
+| **Node.js** | Injected through the inspector; follows async calls. | No agent (network-level spans only) for apps with their own SIGUSR1 handler, unless the inspector is already open. |
+| **Python** | asyncio context tracked on CPython 3.9–3.14. | Free-threaded builds unsupported. |
+| **Rust, C, C++** | Plain-text traffic, and TLS through OpenSSL. | TLS from other libraries (rustls, statically linked TLS) is probably not visible. |
+
+Each incoming request produces a server span, which can have "in queue" and
+"processing" children, and each outgoing call a client span. Not captured:
+
+- **Processes no flag selects**, including client-only processes (cron jobs,
+  queue consumers, scripts) that a port flag misses because they use ephemeral
+  ports. Their calls still show up as server spans on the other end, if that
+  server is traced.
+- **Work that isn't a supported request**: batch jobs with no network calls,
+  CPU-only work, custom binary protocols.
+- **Function-level detail.** Spans are per request, not per function as with an
+  SDK.
+
+## Traces across services
+
+When one traced service calls another over HTTP or gRPC, both appear in one
+trace, whether they run on the same host or on different hosts. Across hosts this
+needs plain-text traffic, or a Go caller (see below):
+
+- **On the same host**, OBI sees both ends of the connection and links them
+  without touching the traffic.
+- **Across hosts**, OBI adds a W3C `traceparent` header to the outgoing request,
+  and OBI on the receiving host reads it. Both hosts need tracing on, and both
+  services must be selected. The header is also read when
+  it comes from an app instrumented with an OpenTelemetry SDK, so OBI's spans
+  join that app's traces.
+
+What this means for your apps:
+
+- **Outgoing plain-text HTTP requests from traced processes carry an extra
+  `traceparent` header**, also to destinations that aren't traced (W3C Trace
+  Context, which servers ignore unless they use it). Go apps get the header on
+  HTTPS requests too, since OBI hooks Go's HTTP library before encryption (not
+  under Secure Boot's lockdown).
+- **HTTPS from other runtimes is not linked across hosts.** OBI only sees
+  encrypted bytes there, so it can't add the header. Those calls start a new
+  trace on the receiving host. (OBI can carry the context in a custom TCP option
+  instead, `context_propagation: tcp`, but load balancers and proxies can strip
+  it or reset the connection, so the script doesn't enable it.)
+
+## Choosing what to trace
+
+There is no "trace everything" option: name what to trace.
+
+| Flag | Traces processes… |
+|---|---|
+| `--trace-ports 80,443,8000-8999` | using one of these local ports (repeatable) |
+| `--trace-exe '/opt/myapp/*'` | whose executable path matches the glob (repeatable) |
+| `--trace-cmd '*reports.py*'` | whose command line matches the glob (repeatable). Use it for interpreted apps, whose executable is just `python3`, `node` or `java` |
+| `--service-name NAME` | Not a selector: reports every traced process as `service.name=NAME` (see [Service names](#service-names)) |
+
+Quote globs so the shell doesn't expand them. Globs may not contain `,`, `{` or
+`}`.
+
+Things to know when choosing:
+
+- **Ports match more than servers.** A process matches if it holds *any* socket on
+  one of the ports, including outgoing connections. Ports below Linux's ephemeral
+  range (32768–60999 by default) behave as expected; ranges reaching into it can
+  also match client processes, and a range like `1-65535` matches almost
+  everything with network activity.
+- **Globs match more than the app.** In testing, `--trace-cmd '*http.server*'`
+  also matched the installer's own `sudo` and `bash` (their arguments contained
+  the pattern), and `--trace-exe '/usr/bin/python3*'` also matched Ubuntu's
+  `unattended-upgrade-shutdown`. Make globs as specific as the app allows.
+- **Child processes are selected with their parent.** A process started by a
+  selected process (for example a pre-forked worker) is traced too, even if it
+  doesn't match a flag itself.
+- **Selecting broadly is invasive.** OBI injects an agent into every Java and
+  Node.js process it matches.
+- **Don't select apps that already send their own traces** through an
+  OpenTelemetry SDK, or you get duplicate spans.
+- The collector itself and Docker's `docker-proxy` are always excluded, so a
+  broad selector doesn't trace the collector's own exports or duplicate container
+  spans.
+
+## Service names
+
+**Without `--service-name`**, each app is named the way OBI names it:
+
+1. `OTEL_SERVICE_NAME` (or `service.name` in `OTEL_RESOURCE_ATTRIBUTES`) from the
+   app's environment, if set. OBI reads the running process's environment, so the
+   variable must be set when the app starts; for a systemd service, add
+   `Environment=OTEL_SERVICE_NAME=...` to its unit and restart it.
+2. Otherwise, in a Docker container, the Compose service or container name.
+3. Otherwise a name from the app's metadata: the Python project or launch target,
+   the Node.js `package.json` name or entry point, the Spring Boot app name, JAR
+   manifest title or JAR name.
+4. Otherwise the executable name, such as `python3.12` or `node`, so several apps
+   can end up under one name.
+
+**With `--service-name NAME`**, every traced process on the host reports as `NAME`,
+overriding even an app's own `OTEL_SERVICE_NAME`. Use it on hosts whose apps
+don't name themselves, and leave it off where they do. Processes stay
+distinguishable by `service.instance.id` (`host:pid`, or the container name,
+`<compose service>.<container>` for Compose). Logs and metrics are not affected.
+
+## What the installer checks
+
+**Before replacing anything.** With tracing flags, the script checks the new
+configuration with the new collector binary (`otelcol-contrib validate`). This
+runs OBI's own checks for kernel version, BTF and privileges, and rejects bad
+flag values. If it fails, the script prints the error and exits, and the
+installed collector, its config and the running service are left as they were.
+
+**After restarting.** With tracing on, the script waits for the collector to
+report it is ready (up to 90 seconds), then 10 seconds more, checks it stayed up,
+and scans its log for OBI errors. (Without tracing it only checks that the
+service is running, as before.)
+
+- **The collector crashed, didn't become ready within 90 seconds, or OBI as a
+  whole failed to start** (`Unable to load eBPF watcher for process events`,
+  `cant start process tracer`): the script **stops and disables the collector**,
+  prints its last log lines, and exits with an error. Logs and metrics stop too,
+  deliberately, so the failure doesn't go unnoticed. Either re-run without the
+  `--trace-*` flags, or fix the cause (usually privileges or kernel support) and
+  re-run with them; both turn the collector back on.
+- **Some processes couldn't be traced** (`couldn't trace process`), **or are
+  traced with less detail**: OBI couldn't attach its Java agent, or turned off
+  trace propagation on this kernel (see [Limitations](#limitations)). The script
+  prints a warning and finishes normally, since other processes, logs and
+  metrics keep working.
+- **No selected process was picked up yet**: the script prints a warning and
+  finishes normally. Usually the app isn't running yet, which is fine; it is
+  traced once it starts. See also [Limitations](#limitations).
+
+Once installed, if the host later loses what OBI needs (for example a kernel
+without BTF), the collector fails at start and keeps restarting, and logs and
+metrics stop until the script is re-run without tracing flags.
+
+## Editing the rules by hand
+
+Anything beyond the flags (regular expressions, languages, combined conditions)
+is done by editing `receivers.obi` in `/etc/otel-config.yaml` and running
+`systemctl restart otel-collector`, which also restarts logs and metrics. A
+re-run of the install script overwrites hand edits.
+
+The script generates OBI's config v2 format, for example:
+
+```yaml
+receivers:
+  obi:
+    version: "2.0"
+    safety:
+      enforce_system_capabilities: true
+    engine:
+      propagation:
+        context_propagation: headers # traceparent header on outgoing HTTP
+    policy:
+      default_action: exclude        # only what a rule includes is traced
+      match_order: first_match_wins
+    rules:
+      - action: exclude
+        name: infra
+        match:
+          process:
+            exe_path_glob: ['*/otelcol-contrib', '*/docker-proxy']
+      - action: include
+        name: ports
+        match:
+          process:
+            open_ports: '80,443,8080'
+      - action: include
+        name: exe
+        match:
+          process:
+            exe_path_glob: ['/opt/myapp/*']
+```
+
+Process conditions available in a rule (conditions in one rule must all match):
+
+| Condition | Matches | Example |
+|---|---|---|
+| `open_ports` | Any local socket on these ports (see above) | `'80,443,8000-8999'` |
+| `exe_path_glob` / `exe_path_regex` | Full executable path | `['/opt/*/bin/*']` |
+| `cmd_args_glob` / `cmd_args_regex` | Command-line arguments | `['*gunicorn*']` |
+| `language_glob` / `language_regex` | Detected runtime: `go`, `java`, `dotnet`, `python`, `ruby`, `nodejs`, `rust`, `cpp`, `php`, `generic` | `['java', 'nodejs']` |
+| `containers_only` | Only processes inside containers | `true` |
+
+There is no condition for a systemd unit or cgroup; use the executable path or
+command line.
+
+Rules for editing:
+
+- **Exclude rules come first.** OBI rejects an exclude rule placed after an
+  include rule.
+- **Use globs or regexes, not both.** The generated rules use globs, so added
+  rules must too, or all of them must be rewritten as regexes.
+- **Keep the `infra` exclusion.** With a `rules` section present, OBI drops its
+  built-in exclusions, and would otherwise trace the collector itself.
+- Unknown keys are rejected, so a typo fails at start rather than silently
+  disabling a rule.
+
+## Limitations
+
+- **Some OBI failures go unnoticed by the installer.** If OBI can't start its
+  process discovery, it logs the error only at debug level, and the collector
+  keeps running without tracing. The installer can't tell this apart from "the
+  app isn't running yet", so it only warns. Failures later in the collector's
+  life are logged without stopping it. Confirm tracing by sending a request to a
+  selected app and finding its trace in OpenObserve.
+- **HTTPS calls between hosts are not linked into one trace**, except from Go
+  apps (see [Traces across services](#traces-across-services)).
+- **Propagation can be off or partial.** On kernels with a known socket bug
+  that OBI can't work around, it turns propagation off and logs `context
+  propagation is disabled` (the installer warns). On kernels before 6.4,
+  keep-alive connections opened before the collector started carry no header
+  until the app reconnects.
+- No context propagation for database, messaging or cache protocols.
+- Connections and prepared statements opened before OBI starts may lack query
+  text or method names.
+- OBI shares the collector's memory limit, and changing what is traced restarts
+  the whole collector, briefly pausing logs and metrics.
+- A collector upgrade also upgrades OBI, which may rename spans and attributes.
+- Off a cloud, a tracing install takes about 45 seconds: the installer waits for
+  the collector to be ready, and its cloud metadata lookups time out first
+  (about 5 seconds per pipeline).
+
+## Design notes
+
+For contributors. Paths refer to the OBI source at v0.15.2, the version bundled in
+otelcol-contrib 0.163.1.
+
+- **In the existing collector, not a separate service.** One unit, one config, one
+  binary; tracing adds the `obi` receiver and a traces pipeline
+  (`obi -> resourcedetection, resource/hostname, [resource/service_name] ->
+  memory_limiter, batch -> otlphttp/openobserve`). The cost is that an OBI
+  start-up failure takes logs and metrics down with it.
+- **Opt-in, explicit selectors only.** Alpha stability, telemetry changes between
+  releases and root access argue against enabling it for everyone, and the way
+  `open_ports` matches makes any default selector far too broad.
+- **Config v2 only.** In receiver mode OBI reads its config only from the
+  collector YAML (`collector/config_linux.go`); the `OTEL_EBPF_*` environment
+  variables are read only by standalone OBI. v2 is the proposed 1.0 format and
+  rejects unknown keys. Nothing deprecated is used.
+- <a id="why-root"></a>**Why root.** OBI needs `CAP_BPF`, `CAP_PERFMON`,
+  `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH`, `CAP_CHECKPOINT_RESTORE` and
+  `CAP_NET_RAW`, and in practice `CAP_SYS_ADMIN` (many distro kernels require it
+  for uprobes, and Debian and Ubuntu set `perf_event_paranoid` above what
+  `CAP_PERFMON` covers). Injection needs more: for Java it switches to the JVM's
+  user (`CAP_SETUID`, `CAP_SETGID`, plus `CAP_SYS_CHROOT` for containers;
+  `pkg/internal/jvmtools/jvm/cmd.go`), and for Node.js it signals other users'
+  processes (`CAP_KILL`). With all of that the user is root in all but name, and
+  older systemd versions reject capability names they don't know, such as
+  `CAP_BPF`.
+- **Fail hard, no fallback.** OBI's kernel and BTF checks run when the
+  collector builds its pipelines, which `validate` also does, so the installer
+  doesn't duplicate them. `safety.enforce_system_capabilities: true` makes
+  missing capabilities fail too instead of running degraded; as root they are
+  always present, so it matters only where root is restricted (for example in a
+  container). The binary is staged next to the installed one for this check,
+  since `/tmp` may be mounted `noexec`.
+- **Detecting failures after restart.** OBI starts in the background, after the
+  collector's cloud detectors time out (about 5 seconds per pipeline off a
+  cloud), so with tracing the installer waits for the collector's `Everything is
+  ready` line rather than a fixed time; installs without tracing keep the single
+  `is-active` check. Some OBI start-up errors are logged only at debug
+  level (`pkg/instrumenter/instrumenter.go`); fixing that needs the receiver to
+  log them at error level or report them through component status.
+- **Service name in the collector.** `--service-name` adds a standard `resource`
+  processor that upserts `service.name` in the traces pipeline. OBI's own
+  per-selector naming (v1 layout) is deprecated with no v2 replacement. Overriding
+  only names that look auto-derived isn't possible: OBI doesn't export whether a
+  name was derived.
+- **Context propagation: `headers`.** OBI's default is `disabled`, which links
+  services only on the same host (OBI's "black-box" correlation of the two ends
+  of a local connection). Separate traces per host make a distributed system
+  hard to follow, so the script sets `engine.propagation.context_propagation:
+  headers`: OBI's `sk_msg` program adds a `traceparent` header to outgoing
+  plain-text HTTP/1 requests and HTTP/2 streams, Go's HTTP library hooks add it
+  for Go (including TLS), and incoming headers are read. `tcp` is not used: a
+  custom TCP option (kind 25) on an established connection is dropped by L7
+  proxies and load balancers, and some middleboxes reset the connection (see
+  OBI's `devdocs/context-propagation.md`).
+- **Traces only.** The receiver can also produce request rate, error and latency
+  metrics; adding a metrics pipeline for it is a later config change.
+
+## Tested on
+
+Collector 0.163.1 on an Ubuntu 24.04 arm64 VM (kernel 6.8), sending to
+OpenObserve, with Python HTTP servers as the traced apps. Covered: flag checks;
+installs with and without tracing; each flag, including `--service-name`; apps
+setting their own `OTEL_SERVICE_NAME`; the collector excluding itself; a rejected
+configuration leaving the install untouched; a crashing collector being stopped
+and disabled, then recovering on re-run; and turning tracing off.
+
+Traces across services were tested with a front-end service on one VM calling a
+back end on a second VM over HTTP: every request formed one trace spanning both
+hosts, with the back end's server span parented to the front end's client span.
+The back end received the `traceparent` header whether or not it was traced
+itself, and none with propagation set to `disabled`. With `disabled`, two
+services on the same host were still linked into one trace.
+
+Not yet tested: Java, Go and Node.js apps (including Go's header injection over
+TLS), cloud hosts, and kernels where OBI fails or turns propagation off after
+start-up. None of the OBI errors and warnings the installer scans for occurred
+in testing.
+
+## References
+
+- OBI documentation: https://opentelemetry.io/docs/zero-code/obi/
+- OBI source: https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation
+- Collector distribution including OBI:
+  https://github.com/open-telemetry/opentelemetry-collector-releases/blob/v0.163.1/distributions/otelcol-contrib/manifest.yaml
