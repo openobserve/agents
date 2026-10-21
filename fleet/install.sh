@@ -117,7 +117,13 @@ service_stop() {
     if [ "$OS" = "linux" ]; then
         systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     else
+        # bootout returns before the job has exited; a bootstrap right after fails with EIO.
         launchctl bootout "system/$LAUNCHD_LABEL" 2>/dev/null || true
+        for _ in $(seq 1 30); do
+            launchctl print "system/$LAUNCHD_LABEL" >/dev/null 2>&1 || return 0
+            sleep 1
+        done
+        warn "$LAUNCHD_LABEL is still shutting down after 30s"
     fi
 }
 
@@ -259,6 +265,8 @@ else
     mkdir -p "$WORKDIR/collector"
     tar -xzf "$WORKDIR/$COLLECTOR_ASSET" -C "$WORKDIR/collector"
     [ -f "$WORKDIR/collector/otelcol-contrib" ] || die "otelcol-contrib not found in $COLLECTOR_ASSET"
+    # tar keeps the archive's owner when run as root, so reset it.
+    chown 0:0 "$WORKDIR/collector/otelcol-contrib" "$WORKDIR/opampsupervisor"
     chmod 755 "$WORKDIR/collector/otelcol-contrib" "$WORKDIR/opampsupervisor"
     "$WORKDIR/collector/otelcol-contrib" --version >/dev/null || die "Downloaded otelcol-contrib does not run on this host"
 
@@ -377,7 +385,7 @@ EOF
     chown root:wheel "$PLIST_FILE"
     chmod 644 "$PLIST_FILE"
     log "Starting $LAUNCHD_LABEL"
-    launchctl bootout "system/$LAUNCHD_LABEL" 2>/dev/null || true
+    service_stop
     launchctl bootstrap system "$PLIST_FILE"
 fi
 
