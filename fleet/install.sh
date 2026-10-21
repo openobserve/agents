@@ -331,9 +331,6 @@ log "Wrote $CONFIG_FILE (endpoint ${OPAMP_ENDPOINT})"
 # ---------------------------------------------------------------------------
 # Install and (re)start the service
 # ---------------------------------------------------------------------------
-LOG_LINES_BEFORE=0
-[ -f "$LOG_FILE" ] && LOG_LINES_BEFORE=$(wc -l < "$LOG_FILE")
-
 if [ "$OS" = "linux" ]; then
     cat > "$UNIT_FILE" <<EOF
 [Unit]
@@ -353,8 +350,8 @@ WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
     systemctl enable "$SERVICE_NAME"
+    service_stop
     log "Starting $SERVICE_NAME"
-    systemctl restart "$SERVICE_NAME"
 else
     cat > "$PLIST_FILE" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -384,8 +381,16 @@ else
 EOF
     chown root:wheel "$PLIST_FILE"
     chmod 644 "$PLIST_FILE"
-    log "Starting $LAUNCHD_LABEL"
     service_stop
+    log "Starting $LAUNCHD_LABEL"
+fi
+
+# Snapshot the log only once the old instance is gone, so its lines are not mistaken for the new one.
+LOG_LINES_BEFORE=0
+[ -f "$LOG_FILE" ] && LOG_LINES_BEFORE=$(wc -l < "$LOG_FILE")
+if [ "$OS" = "linux" ]; then
+    systemctl start "$SERVICE_NAME"
+else
     launchctl bootstrap system "$PLIST_FILE"
 fi
 

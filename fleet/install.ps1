@@ -299,9 +299,10 @@ try {
     Write-Host "WARNING: could not register event log source ${ServiceName}: $($_.Exception.Message)"
 }
 
+Stop-SupervisorService
+# Take the timestamp only once the old instance is gone, so its events are not mistaken for the new one.
 $StartTime = Get-Date
 Write-Host "Starting $ServiceName"
-Stop-SupervisorService
 Start-Service -Name $ServiceName
 
 # Wait for the supervisor to connect so a bad URL or token fails loudly here.
