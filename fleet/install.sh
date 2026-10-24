@@ -188,7 +188,7 @@ esac
 [[ "$ORG" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--org may only contain letters, digits, '.', '_' and '-'"
 
 if [ -z "$VERSION" ]; then
-    SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)
+    SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-}")" 2>/dev/null && pwd || true)
     VERSION_URL="https://raw.githubusercontent.com/openobserve/agents/main/fleet/VERSION"
     if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/VERSION" ]; then
         VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")
