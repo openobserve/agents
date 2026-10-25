@@ -32,7 +32,7 @@ fi
 
 # Detect architecture
 ARCH=$(uname -m)
-OTEL_VERSION="0.156.0"
+OTEL_VERSION="0.163.1"
 
 if [ "$ARCH" = "x86_64" ]; then
     ARCH="amd64"
@@ -308,8 +308,14 @@ EOF
 
 # Unload if already present, so re-running the installer works
 echo "Unloading existing services if present"
-launchctl bootout "system/$BRIDGE_PLIST_NAME" 2>/dev/null || true
-launchctl bootout "system/$PLIST_NAME" 2>/dev/null || true
+for label in "$BRIDGE_PLIST_NAME" "$PLIST_NAME"; do
+    launchctl bootout "system/$label" 2>/dev/null || true
+    # bootout returns before the job has exited; a bootstrap right after fails with EIO.
+    for _ in $(seq 1 30); do
+        launchctl print "system/$label" >/dev/null 2>&1 || break
+        sleep 1
+    done
+done
 
 # Load the plists into launchd
 echo "Setting services to launch during system startup"
