@@ -252,10 +252,19 @@ receivers:
     collection_interval: 30s
     scrapers:
       cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
       disk:
       filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
       load:
       memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
       network:
       paging:          
       processes:
