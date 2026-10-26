@@ -113,9 +113,10 @@ The generated `supervisor.yaml` connects to `<scheme>://<host>/api/<org>/v1/opam
 with `Authorization: Basic base64(fleet:<token>)`, enables the
 `accepts_remote_config`, `reports_effective_config`, `reports_health`,
 `reports_own_metrics`, `accepts_restart_command` and `reports_available_components`
-capabilities, and passes `O2_ENDPOINT` (`<url>/api/<org>`) and `O2_TOKEN` to the
-collector so the pushed configuration can reference them as `${env:O2_ENDPOINT}` and
-`${env:O2_TOKEN}`. Edit it only through the script: a re-run overwrites it.
+capabilities, sets `agent.config_apply_timeout` to `30s` (the supervisor's 5s default
+also covers stopping the old collector and is too short for many hosts), and passes
+`O2_ENDPOINT` (`<url>/api/<org>`) and `O2_TOKEN` to the collector so the pushed
+configuration can reference them as `${env:O2_ENDPOINT}` and `${env:O2_TOKEN}`. Edit it only through the script: a re-run overwrites it.
 
 ## Platforms
 

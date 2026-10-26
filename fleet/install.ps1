@@ -230,6 +230,8 @@ foreach ($dir in $DataDir, $StateDir) {
 
 # YAML single-quoted scalars: backslashes in Windows paths need no escaping.
 # Do not add reports_remote_config: the supervisor refuses to start with it set.
+# The default 5s config_apply_timeout also covers stopping the old collector, whose final
+# own-metrics push alone can take that long, so slow hosts report every config as FAILED.
 # Running as a service, the supervisor logs to the Windows Application event log
 # (source opampsupervisor), so telemetry.logs.output_paths would be ignored.
 $ConfigContent = @"
@@ -251,6 +253,7 @@ capabilities:
 
 agent:
   executable: '$CollectorExe'
+  config_apply_timeout: 30s
   env:
     O2_ENDPOINT: '$O2Endpoint'
     O2_TOKEN: '$AuthHeader'
