@@ -29,9 +29,9 @@ param (
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# Run from irm the script shares the caller's session, where exit would close the window.
 function Fail($Message) {
-    Write-Host "ERROR: $Message" -ForegroundColor Red
-    exit 1
+    throw "ERROR: $Message"
 }
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -70,7 +70,7 @@ if ($Uninstall) {
     $svc = Get-SupervisorService
     if (-not $svc -and -not (Test-Path $InstallDir) -and -not (Test-Path $ConfigFile)) {
         Write-Host "Nothing to uninstall: $ServiceName is not installed."
-        exit 0
+        return
     }
     if ($svc) {
         Write-Host "Stopping and removing service $ServiceName"
@@ -82,7 +82,7 @@ if ($Uninstall) {
     if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
     if (Test-Path $ConfigFile) { Remove-Item -Force $ConfigFile }
     Write-Host "Uninstalled. Kept state in '$StateDir'; delete it by hand if no longer needed."
-    exit 0
+    return
 }
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ if ($Uninstall) {
 if (-not $Url -or -not $Org -or -not $Token) {
     Write-Host "Usage: .\install.ps1 -Url <openobserve url> -Org <org> -Token <fleet token> [-Transport ws|http] [-Version X.Y.Z]"
     Write-Host "       .\install.ps1 -Uninstall"
-    exit 1
+    Fail "-Url, -Org and -Token are required"
 }
 
 $Url = $Url.TrimEnd("/")
@@ -320,10 +320,10 @@ for ($i = 0; $i -lt 30; $i++) {
 
 $svc = Get-SupervisorService
 if ($svc.Status -ne "Running") {
-    Write-Host "ERROR: $ServiceName is not running (status $($svc.Status)). Recent events:" -ForegroundColor Red
+    Write-Host "Recent $ServiceName events:"
     Get-WinEvent -FilterHashtable @{ LogName = "Application"; ProviderName = $ServiceName; StartTime = $StartTime } -ErrorAction SilentlyContinue |
         Select-Object -First 20 | ForEach-Object { Write-Host $_.Message }
-    exit 1
+    Fail "$ServiceName is not running (status $($svc.Status))"
 }
 
 if ($Connected) {
