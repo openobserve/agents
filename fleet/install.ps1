@@ -109,10 +109,10 @@ if ($Org -notmatch '^[A-Za-z0-9_.-]+$') {
 }
 
 if (-not $Version) {
-    $localVersionFile = Join-Path $PSScriptRoot "VERSION"
     $versionUrl = "https://raw.githubusercontent.com/openobserve/agents/main/fleet/VERSION"
-    if ($PSScriptRoot -and (Test-Path $localVersionFile)) {
-        $Version = (Get-Content $localVersionFile -Raw).Trim()
+    # Run from irm, $PSScriptRoot is empty and Join-Path rejects it.
+    if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "VERSION"))) {
+        $Version = (Get-Content (Join-Path $PSScriptRoot "VERSION") -Raw).Trim()
     } else {
         try {
             $Version = (Invoke-WebRequest -Uri $versionUrl -UseBasicParsing).Content.Trim()
