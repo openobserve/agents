@@ -21,7 +21,7 @@ param (
     [string]$Org,
     [string]$Token,
     [ValidateSet("ws", "http")]
-    [string]$Transport = "ws",
+    [string]$Transport = "http",
     [string]$Version,
     [switch]$Uninstall
 )
