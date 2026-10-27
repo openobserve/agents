@@ -19,9 +19,10 @@ Options:
   --url URL          OpenObserve base URL, e.g. https://o2.example.com or http://localhost:5080
   --org ORG          OpenObserve organization
   --token TOKEN      Fleet enrollment token from the OpenObserve console
-  --transport ws|http
-                     OpAMP transport (default: ws). Use http behind proxies that
-                     cannot carry WebSocket connections.
+  --transport http|ws
+                     OpAMP transport (default: http, polls every 30s). ws pushes
+                     config changes instantly but needs every proxy/load balancer
+                     on the path to carry WebSocket connections.
   --version X.Y.Z    otelcol-contrib / opampsupervisor version to install
                      (default: fleet/VERSION in the openobserve/agents repo)
   --uninstall        Stop and remove the service, binaries and config. The state
@@ -37,7 +38,7 @@ die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 URL=""
 ORG=""
 TOKEN=""
-TRANSPORT="ws"
+TRANSPORT="http"
 VERSION=""
 UNINSTALL=false
 
@@ -168,7 +169,7 @@ fi
 
 case "$TRANSPORT" in
     ws|http) ;;
-    *) die "--transport must be 'ws' or 'http', got '$TRANSPORT'" ;;
+    *) die "--transport must be 'http' or 'ws', got '$TRANSPORT'" ;;
 esac
 
 URL=$(printf '%s' "$URL" | sed -E 's#/+$##')
