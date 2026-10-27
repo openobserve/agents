@@ -42,7 +42,7 @@ lines if the service dies, and warns if it is running but has not connected yet
 | `--url URL` | `-Url URL` | OpenObserve base URL, e.g. `https://o2.example.com` or `http://localhost:5080`. Required. |
 | `--org ORG` | `-Org ORG` | OpenObserve organization. Required. |
 | `--token TOKEN` | `-Token TOKEN` | Fleet token from the console. Required. |
-| `--transport ws\|http` | `-Transport ws\|http` | OpAMP transport. Default `http` (polls every 30s; works wherever ingestion works). `ws` (WebSocket) pushes config changes instantly but needs every proxy/load balancer on the path to carry WebSocket connections. |
+| `--transport http\|ws` | `-Transport http\|ws` | OpAMP transport. Default `http` (polls every 30s; works wherever ingestion works). `ws` (WebSocket) pushes config changes instantly but needs every proxy/load balancer on the path to carry WebSocket connections. |
 | `--version X.Y.Z` | `-Version X.Y.Z` | `otelcol-contrib` and `opampsupervisor` version. Default: [VERSION](VERSION). |
 | `--uninstall` | `-Uninstall` | Remove the service, binaries and config. |
 

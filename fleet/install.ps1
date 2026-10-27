@@ -20,7 +20,7 @@ param (
     [string]$Url,
     [string]$Org,
     [string]$Token,
-    [ValidateSet("ws", "http")]
+    [ValidateSet("http", "ws")]
     [string]$Transport = "http",
     [string]$Version,
     [switch]$Uninstall
@@ -89,7 +89,7 @@ if ($Uninstall) {
 # Validate inputs
 # ---------------------------------------------------------------------------
 if (-not $Url -or -not $Org -or -not $Token) {
-    Write-Host "Usage: .\install.ps1 -Url <openobserve url> -Org <org> -Token <fleet token> [-Transport ws|http] [-Version X.Y.Z]"
+    Write-Host "Usage: .\install.ps1 -Url <openobserve url> -Org <org> -Token <fleet token> [-Transport http|ws] [-Version X.Y.Z]"
     Write-Host "       .\install.ps1 -Uninstall"
     exit 1
 }
