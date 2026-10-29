@@ -3,13 +3,17 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<EOF
-Usage: $0 <URL> <Authorization_Key> [tracing options]
+Usage: $0 <URL> <Authorization_Key> [eBPF options]
 
 eBPF tracing (OBI) is optional, and on only when at least one --trace-* flag is given:
   --trace-ports LIST    trace processes using these local ports, e.g. 80,443,8000-8999 (repeatable)
   --trace-exe GLOB      trace processes whose executable path matches GLOB (repeatable)
   --trace-cmd GLOB      trace processes whose command line matches GLOB (repeatable)
   --service-name NAME   report every traced process as service.name=NAME
+
+eBPF network flow metrics (OBI) are optional, and on only when this flag is given:
+  --network-flows LIST  report the bytes this host exchanges, labelled with the networks
+                        in LIST as CIDR or CIDR=NAME, e.g. 10.0.1.5/32=web1,10.0.2.0/24=db (repeatable)
 EOF
     exit 1
 }
@@ -26,10 +30,11 @@ TRACE_PORTS=""
 TRACE_EXE=()
 TRACE_CMD=()
 SERVICE_NAME=""
+NETWORK_CIDRS=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --trace-ports|--trace-exe|--trace-cmd|--service-name) ;;
+        --trace-ports|--trace-exe|--trace-cmd|--service-name|--network-flows) ;;
         *) echo "ERROR: Unknown option: $1" >&2; usage ;;
     esac
     if [ "$#" -lt 2 ] || [ -z "$2" ]; then
@@ -41,6 +46,7 @@ while [ "$#" -gt 0 ]; do
         --trace-exe)    TRACE_EXE+=("$2") ;;
         --trace-cmd)    TRACE_CMD+=("$2") ;;
         --service-name) SERVICE_NAME=$2 ;;
+        --network-flows) NETWORK_CIDRS="${NETWORK_CIDRS:+$NETWORK_CIDRS,}$2" ;;
     esac
     shift 2
 done
@@ -48,6 +54,15 @@ done
 TRACING=false
 if [ -n "$TRACE_PORTS" ] || [ "${#TRACE_EXE[@]}" -gt 0 ] || [ "${#TRACE_CMD[@]}" -gt 0 ]; then
     TRACING=true
+fi
+NETWORK=false
+if [ -n "$NETWORK_CIDRS" ]; then
+    NETWORK=true
+fi
+# Either one loads OBI's eBPF programs in the collector.
+EBPF=false
+if $TRACING || $NETWORK; then
+    EBPF=true
 fi
 
 # Check the values before anything is installed or restarted. OBI itself rejects
@@ -70,6 +85,44 @@ if [ -n "$TRACE_PORTS" ]; then
         if [ "${#port}" -gt 5 ] || [ "$((10#$port))" -lt 1 ] || [ "$((10#$port))" -gt 65535 ]; then
             echo "ERROR: --trace-ports: $port is not a port between 1 and 65535" >&2
             exit 1
+        fi
+    done
+fi
+# OBI checks that each CIDR parses in the pre-flight validate; this keeps the
+# entries and names from breaking out of the YAML, and rejects out-of-range IPv4
+# octets and prefixes before the collector is downloaded. (read stops at a newline, so
+# newlines become spaces, which the check rejects; it also drops one trailing
+# empty entry, so the added comma leaves an empty one from the value to reject.)
+if $NETWORK; then
+    IFS=, read -r -a NETWORK_ENTRIES <<<"${NETWORK_CIDRS//$'\n'/ },"
+    for entry in "${NETWORK_ENTRIES[@]}"; do
+        if [[ ! "$entry" =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}(=[A-Za-z0-9._-]+)?$ ]]; then
+            echo "ERROR: --network-flows takes CIDR or CIDR=NAME entries, e.g. 10.0.1.5/32=web1,10.0.2.0/24=db; names may only contain letters, digits, '.', '_' and '-': '$entry'" >&2
+            exit 1
+        fi
+        cidr=${entry%%=*}
+        addr=${cidr%/*}
+        prefix=$((10#${cidr#*/}))
+        if [[ "$addr" == *:* ]]; then
+            # Only a plausibility check; OBI's validate parses the address fully.
+            if [ "$prefix" -gt 128 ] || [[ "$addr" == *:::* ]] || [[ "$addr" =~ [0-9A-Fa-f]{5} ]]; then
+                echo "ERROR: --network-flows: $cidr is not an IPv6 CIDR with a prefix between 0 and 128" >&2
+                exit 1
+            fi
+        else
+            valid=false
+            if [ "$prefix" -le 32 ] && [[ "$addr" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+                valid=true
+                for octet in "${BASH_REMATCH[@]:1}"; do
+                    if [ "$((10#$octet))" -gt 255 ]; then
+                        valid=false
+                    fi
+                done
+            fi
+            if ! $valid; then
+                echo "ERROR: --network-flows: $cidr is not an IPv4 CIDR with octets between 0 and 255 and a prefix between 0 and 32" >&2
+                exit 1
+            fi
         fi
     done
 fi
@@ -153,11 +206,41 @@ fi
 
 tar -xzf "$WORKDIR/otelcol-contrib.tar.gz" -C "$WORKDIR"
 
-# The tracing parts of the configuration; all empty without tracing.
+# The eBPF parts of the configuration; all empty without the eBPF flags.
 OBI_RECEIVER=""
 SERVICE_NAME_PROCESSOR=""
 TRACES_PIPELINE=""
-if $TRACING; then
+METRICS_PIPELINE=""
+if $EBPF; then
+    OBI_NETWORK=""
+    if $NETWORK; then
+        OBI_CIDRS=""
+        for entry in "${NETWORK_ENTRIES[@]}"; do
+            OBI_CIDRS+="
+            - cidr: $(yaml_quote "${entry%%=*}")"
+            if [[ "$entry" == *=* ]]; then
+                OBI_CIDRS+="
+              name: $(yaml_quote "${entry#*=}")"
+            fi
+        done
+        # Flows are labelled src.cidr and dst.cidr with the narrowest matching
+        # entry's name; addresses no entry matches are left unlabelled.
+        OBI_NETWORK="
+    network:
+      capture:
+        enabled: true
+        selection:
+          cidrs:$OBI_CIDRS
+    # Network flow metrics only, not application RED metrics.
+    metrics:
+      features: [network]"
+        METRICS_PIPELINE="
+    metrics/obi:
+      receivers: [obi]
+      processors: [resourcedetection, resource/hostname, memory_limiter, batch]
+      exporters: [otlphttp/openobserve]"
+    fi
+
     OBI_RULES=""
     if [ -n "$TRACE_PORTS" ]; then
         OBI_RULES+="
@@ -194,7 +277,7 @@ if $TRACING; then
   # (*_glob) or all use regexes (*_regex), not both. Keep the infra exclusion;
   # exports_otlp must be alone in its rule.
   obi:
-    version: \"2.0\"
+    version: \"2.0\"$OBI_NETWORK
     safety:
       enforce_system_capabilities: true
     # Adds a traceparent header to outgoing plain-text HTTP requests and reads
@@ -219,26 +302,28 @@ if $TRACING; then
               port: 4317
               protocol: protobuf$OBI_RULES"
 
-    TRACES_PROCESSORS="resourcedetection, resource/hostname"
-    if [ -n "$SERVICE_NAME" ]; then
-        SERVICE_NAME_PROCESSOR="
+    if $TRACING; then
+        TRACES_PROCESSORS="resourcedetection, resource/hostname"
+        if [ -n "$SERVICE_NAME" ]; then
+            SERVICE_NAME_PROCESSOR="
   # Reports every traced process under one service name, overriding the app's own.
   resource/service_name:
     attributes:
       - key: service.name
         value: \"$SERVICE_NAME\"
         action: upsert"
-        TRACES_PROCESSORS+=", resource/service_name"
-    fi
+            TRACES_PROCESSORS+=", resource/service_name"
+        fi
 
-    TRACES_PIPELINE="
+        TRACES_PIPELINE="
     traces:
       receivers: [obi]
       processors: [$TRACES_PROCESSORS, memory_limiter, batch]
       exporters: [otlphttp/openobserve]"
+    fi
 fi
 
-# Generate the configuration file in the workdir; it is checked (with tracing)
+# Generate the configuration file in the workdir; it is checked (with eBPF)
 # before anything on the host is replaced.
 cat > "$WORKDIR/otel-config.yaml" <<EOL
 receivers:
@@ -323,7 +408,7 @@ service:
     logs/journald:
       receivers: [journald]
       processors: [resourcedetection, resource/hostname, memory_limiter, batch]
-      exporters: [otlphttp/openobserve_journald]$TRACES_PIPELINE
+      exporters: [otlphttp/openobserve_journald]$TRACES_PIPELINE$METRICS_PIPELINE
 EOL
 
 # Staged next to the installed binary, since /tmp may be mounted noexec.
@@ -332,12 +417,12 @@ install -m 0755 "$WORKDIR/otelcol-contrib" /usr/local/bin/otelcol-contrib.new
 # Pre-flight: OBI checks the kernel version, BTF and capabilities when the
 # collector builds its pipelines, which validate also does. Run it with the new
 # binary before replacing anything, so a failure leaves an existing install working.
-if $TRACING; then
-    echo "Checking that eBPF tracing can run on this host"
+if $EBPF; then
+    echo "Checking that eBPF (OBI) can run on this host"
     if ! /usr/local/bin/otelcol-contrib.new validate --config "$WORKDIR/otel-config.yaml"; then
         rm -f /usr/local/bin/otelcol-contrib.new
-        echo "ERROR: The new configuration was rejected (see the error above): eBPF tracing can't run on this host, or a value is invalid." >&2
-        echo "The installed collector, its config and the service were not changed. Re-run without the --trace-* flags to install without tracing." >&2
+        echo "ERROR: The new configuration was rejected (see the error above): eBPF can't run on this host, or a value is invalid." >&2
+        echo "The installed collector, its config and the service were not changed. Re-run without the --trace-* and --network-flows flags to install without eBPF." >&2
         exit 1
     fi
 fi
@@ -347,8 +432,11 @@ mv -f /usr/local/bin/otelcol-contrib.new /usr/local/bin/otelcol-contrib
 cp "$WORKDIR/otel-config.yaml" /etc/otel-config.yaml
 
 # OBI needs root-level privileges: beyond loading eBPF programs, it switches to a
-# JVM's user to attach its Java agent and signals Node.js processes.
-if $TRACING; then
+# JVM's user to attach its Java agent and signals Node.js processes. Network flows
+# alone need fewer (CAP_BPF, CAP_NET_RAW, CAP_PERFMON, and CAP_SYS_RESOURCE before
+# 5.11), but older systemd rejects CAP_BPF and RHEL-family 4.18 kernels need
+# CAP_SYS_ADMIN instead, so they run as root too.
+if $EBPF; then
     RUN_AS=root
 else
     RUN_AS=openobserve-agent
@@ -372,17 +460,17 @@ Group=$RUN_AS
 WantedBy=multi-user.target
 EOL
 
-# With tracing, a failure stops and disables the collector, logs and metrics
+# With eBPF, a failure stops and disables the collector, logs and metrics
 # included, so it can't come back half-working at boot or go unnoticed.
 fail() {
     echo "Last collector log lines:" >&2
     journalctl -u otel-collector -n 15 -o cat -q --no-pager >&2 || true
     echo "ERROR: $1" >&2
-    if $TRACING; then
+    if $EBPF; then
         systemctl stop otel-collector || true
         systemctl disable --quiet otel-collector || true
         echo "otel-collector has been stopped and disabled, so logs and metrics are stopped too." >&2
-        echo "Either re-run without the --trace-* flags, or fix the cause (usually missing privileges or kernel support) and re-run with them." >&2
+        echo "Either re-run without the --trace-* and --network-flows flags, or fix the cause (usually missing privileges or kernel support) and re-run with them." >&2
     fi
     echo "Inspect logs with: journalctl -u otel-collector -n 50" >&2
     exit 1
@@ -392,7 +480,7 @@ fail() {
 # new binary/config instead of no-op'ing when it is already running.
 systemctl daemon-reload
 systemctl enable otel-collector
-if $TRACING; then
+if $EBPF; then
     # Only log lines after this point belong to the new run. The time is the
     # fallback for when there is no cursor (an empty journal on older systemd).
     CURSOR=$(journalctl --show-cursor -n 0 -q | sed -n 's/^-- cursor: //p') || true
@@ -408,7 +496,7 @@ if ! systemctl restart otel-collector; then
 fi
 
 # Verify the service actually came up instead of unconditionally reporting success.
-if ! $TRACING; then
+if ! $EBPF; then
     if ! systemctl is-active --quiet otel-collector; then
         fail "otel-collector failed to start."
     fi
@@ -416,7 +504,7 @@ if ! $TRACING; then
     exit 0
 fi
 
-# With tracing, check longer: OBI starts in the background, after the collector.
+# With eBPF, check longer: OBI starts in the background, after the collector.
 # A crash shows as a changed main PID (and restart count, on systemd 235+).
 STARTED=$(systemctl show -p MainPID -p NRestarts otel-collector) || true
 still_up() {
@@ -445,7 +533,18 @@ sleep 10
 still_up || fail "otel-collector did not stay up."
 
 LOGS=$(journalctl -u otel-collector "${BOUNDARY[@]}" -o cat -q --no-pager) ||
-    fail "could not read the otel-collector logs to check eBPF tracing."
+    fail "could not read the otel-collector logs to check eBPF."
+
+# OBI logs why network capture failed only at debug level, and the failure also
+# stops tracing, so the success line is required.
+if $NETWORK && ! grep -q 'Flows agent successfully started' <<<"$LOGS"; then
+    fail "eBPF network flow capture did not start."
+fi
+if ! $TRACING; then
+    echo "Otel-collector service started!"
+    echo "To confirm network flows, look for the obi_network_flow_bytes metric in OpenObserve."
+    exit 0
+fi
 
 # OBI starts capturing in the background, so these failures don't stop the
 # collector by themselves. Each means OBI as a whole has stopped tracing.
@@ -490,3 +589,6 @@ fi
 
 echo "Otel-collector service started!"
 echo "To confirm tracing, send a request to a selected app and look for its trace in OpenObserve."
+if $NETWORK; then
+    echo "To confirm network flows, look for the obi_network_flow_bytes metric in OpenObserve."
+fi

@@ -44,6 +44,22 @@ reports every traced process under one name. Traced processes add a W3C
 across hosts. Re-run without the flags to turn tracing off. See [obi.md](obi.md)
 for details.
 
+### Network flows (optional)
+
+Add `--network-flows` to also report the bytes each host sends to and receives from
+other hosts and networks, over any TCP or UDP protocol, as the
+`obi_network_flow_bytes` metric. It takes the networks to report on, as `CIDR` or
+`CIDR=NAME` entries; flows are labelled `src_cidr` and `dst_cidr` with the names, so
+give every host the same list. Like tracing, it needs Linux 5.8+ (or RHEL-family 4.18)
+with BTF and runs the collector as root. It works with or without the `--trace-*`
+flags, and doesn't trace anything on its own.
+
+```bash
+sudo ./install.sh {URL} {authorization_token} --network-flows '10.0.1.5/32=web1,10.0.1.6/32=db1,0.0.0.0/0=other'
+```
+
+See [obi.md](obi.md#network-flows) for the labels and caveats.
+
 ### Uninstall
 
 ```bash

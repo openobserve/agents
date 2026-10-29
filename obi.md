@@ -1,9 +1,10 @@
-# eBPF tracing on Linux (OBI)
+# eBPF tracing and network flows on Linux (OBI)
 
 The Linux install script ([linux/install.sh](linux/install.sh)) can also trace the
-applications on a host, with no code changes and no SDK. It uses OBI
-(OpenTelemetry eBPF Instrumentation), which runs inside the collector the script
-already installs, as its `obi` receiver.
+applications on a host, with no code changes and no SDK, and report the bytes the
+host sends to and receives from other networks (see [Network flows](#network-flows)).
+It uses OBI (OpenTelemetry eBPF Instrumentation), which runs inside the collector the
+script already installs, as its `obi` receiver.
 
 Tracing is off by default and turned on per host with `--trace-*` flags. The
 `obi` receiver is at **alpha** stability in otelcol-contrib 0.163.1 (OBI v0.15.2):
@@ -33,10 +34,10 @@ tracing off, re-run the script without the `--trace-*` flags.
   with the eBPF backports), with kernel BTF (`/sys/kernel/btf/vmlinux` or one of libbpf's fallback paths).
   OBI checks both and the install fails if either is missing.
 - systemd.
-- **The collector runs as root while tracing is on.** Loading eBPF programs,
-  attaching to other users' processes and injecting the Java and Node.js agents
-  need root-level privileges (see [Why root](#why-root)). Without tracing it runs
-  as the unprivileged `openobserve-agent` user, as before.
+- **The collector runs as root while tracing or network flows are on.** Loading
+  eBPF programs, attaching to other users' processes and injecting the Java and
+  Node.js agents need root-level privileges (see [Why root](#why-root)). Without
+  them it runs as the unprivileged `openobserve-agent` user, as before.
 
 Windows and macOS are not supported.
 
@@ -169,6 +170,58 @@ don't name themselves, and leave it off where they do. Processes stay
 distinguishable by `service.instance.id` (`host:pid`, or the container name,
 `<compose service>.<container>` for Compose). Logs and metrics are not affected.
 
+## Network flows
+
+`--network-flows` makes OBI also export `obi.network.flow.bytes` (queried in
+OpenObserve as `obi_network_flow_bytes`): bytes the host sends and receives, for any
+TCP or UDP protocol, whether or not the process is traced. It works with or without
+the `--trace-*` flags; on its own, OBI instruments no process.
+
+```bash
+# The same list on every host; each host labels its own flows with it
+sudo ./install.sh <URL> <AUTH_KEY> --network-flows '10.0.1.5/32=web1,10.0.1.6/32=web2,10.0.2.0/24=db,0.0.0.0/0=other'
+```
+
+The flag takes a list of `CIDR` or `CIDR=NAME` entries (repeatable). Each flow is
+labelled `src_cidr` and `dst_cidr` with the name of the narrowest entry that contains
+its source and destination address (the CIDR itself when unnamed). An address no
+entry contains leaves the label empty; a `0.0.0.0/0` (and `::/0`) entry names the
+rest. Names may contain letters, digits, `.`, `_` and `-`.
+
+**The list is what gives flows an identity.** Without Kubernetes, OBI labels flows
+only with `direction`, and addresses, ports and reverse-DNS names are off by
+default; the receiver's config v2 can't turn them on (attribute selection is a
+standalone-only section). So name each host with a `/32` entry for a host-to-host
+map, or name subnets for a coarser one.
+
+Labels:
+
+| Label | Values |
+|---|---|
+| `src_cidr`, `dst_cidr` | Name of the narrowest matching entry, or empty |
+| `direction` | `request` (from the side that opened the connection), `response`, or `unknown` (e.g. UDP) |
+| `host_name`, `host_id` | The host that reported the flow, not an end of it (plus the cloud attributes, as for host metrics) |
+
+For example, request bytes per second between named hosts:
+
+```promql
+max by (src_cidr, dst_cidr) (rate(obi_network_flow_bytes{direction="request"}[5m]))
+```
+
+Things to know:
+
+- **Traffic between two hosts that both run the agent is reported twice**, once by
+  each host (two `host_name` values). Hence `max` above, which is exact when either
+  entry is a single host that runs the agent, since its report carries the whole
+  total. Where only one side runs the agent and its entry covers several hosts, each
+  host reports only its share: use `sum` instead. Where both entries cover several
+  agent hosts, neither query is exact (`max` undercounts, `sum` doubles).
+- **Loopback traffic is counted** unless both ends have the same address. For
+  example 127.0.0.1 to 127.0.0.53 (a local DNS stub) appears; add
+  `127.0.0.0/8=loopback` to tell it apart.
+- The number of series grows with the pairs of entries that talk, not with the
+  number of addresses, so wide entries such as `0.0.0.0/0` are safe.
+
 ## What the installer checks
 
 **Before replacing anything.** With tracing flags, the script checks the new
@@ -176,10 +229,11 @@ configuration with the new collector binary (`otelcol-contrib validate`). This
 runs OBI's own checks for kernel version, BTF and privileges, and rejects bad
 flag values. If it fails, the script prints the error and exits, and the
 installed collector, its config and the running service are left as they were.
+The same check runs with `--network-flows`, and also rejects a malformed CIDR.
 
-**After restarting.** With tracing on, the script waits for the collector to
-report it is ready (up to 90 seconds), then 10 seconds more, checks it stayed up,
-and scans its log for OBI errors. (Without tracing it only checks that the
+**After restarting.** With tracing or network flows on, the script waits for the
+collector to report it is ready (up to 90 seconds), then 10 seconds more, checks it
+stayed up, and scans its log for OBI errors. (Without either it only checks that the
 service is running, as before.)
 
 - **The collector crashed, didn't become ready within 90 seconds, or OBI as a
@@ -187,8 +241,8 @@ service is running, as before.)
   `cant start process tracer`): the script **stops and disables the collector**,
   prints its last log lines, and exits with an error. Logs and metrics stop too,
   deliberately, so the failure doesn't go unnoticed. Either re-run without the
-  `--trace-*` flags, or fix the cause (usually privileges or kernel support) and
-  re-run with them; both turn the collector back on.
+  `--trace-*` and `--network-flows` flags, or fix the cause (usually privileges or
+  kernel support) and re-run with them; both turn the collector back on.
 - **Some processes couldn't be traced** (`couldn't trace process`), **or are
   traced with less detail**: OBI logged that it couldn't attach its Java agent,
   didn't inject its Node.js agent, or turned off trace propagation on this
@@ -196,13 +250,16 @@ service is running, as before.)
   check runs are caught. The script
   prints a warning and finishes normally, since other processes, logs and
   metrics keep working.
+- **With `--network-flows`, OBI didn't log `Flows agent successfully started`**:
+  the script stops and disables the collector, as above. OBI logs why only at
+  debug level, and the failure stops tracing too.
 - **No selected process was picked up yet**: the script prints a warning and
   finishes normally. Usually the app isn't running yet, which is fine; it is
   traced once it starts. See also [Limitations](#limitations).
 
 Once installed, if the host later loses what OBI needs (for example a kernel
 without BTF), the collector fails at start and keeps restarting, and logs and
-metrics stop until the script is re-run without tracing flags.
+metrics stop until the script is re-run without the eBPF flags.
 
 ## Editing the rules by hand
 
@@ -319,7 +376,11 @@ Rules for editing:
 - OBI shares the collector's memory limit, and changing what is traced restarts
   the whole collector, briefly pausing logs and metrics.
 - A collector upgrade also upgrades OBI, which may rename spans and attributes.
-- Off a cloud, a tracing install takes about 45 seconds: the installer waits for
+- **Network flows can under-count busy flows during short bursts.** In testing,
+  a burst of about 6 seconds was only about half counted. The likely cause is a
+  race in OBI's flow-map drain, which discards entries whose start time predates
+  its last read (`pkg/internal/netolly/ebpf/flow_map_reader_batch.go`).
+- Off a cloud, a tracing or network flows install takes about 45 seconds: the installer waits for
   the collector to be ready, and its cloud metadata lookups time out first
   (about 5 seconds per pipeline).
 
@@ -379,8 +440,29 @@ otelcol-contrib 0.163.1.
   custom TCP option (kind 25) on an established connection is dropped by L7
   proxies and load balancers, and some middleboxes reset the connection (see
   OBI's `devdocs/context-propagation.md`).
-- **Traces only.** The receiver can also produce request rate, error and latency
-  metrics; adding a metrics pipeline for it is a later config change.
+- **Network flows: one flag, CIDR names as identity.** `--network-flows` adds
+  `network.capture.enabled: true`, `network.capture.selection.cidrs` from the flag,
+  and `metrics.features: [network]` to the receiver, and a `metrics/obi` pipeline
+  (`obi -> resourcedetection, resource/hostname -> memory_limiter, batch ->
+  otlphttp/openobserve`). The explicit feature list keeps OBI from also sending
+  request rate, error and latency metrics for traced processes. Flow labels without
+  Kubernetes are `direction` only (`pkg/export/attributes/attr_defs.go`,
+  `networkAttributes`); CIDR labels are on by default once a CIDR is configured
+  (`networkCIDR`, enabled in `pkg/instrumenter/instrumenter.go`
+  `attributeGroups`), and `attributes.select` lives in the `enrich` section, which
+  receiver config rejects (`internal/config/schema/schema.go`, `ValidateReceiver`).
+  A bare flag without CIDRs would report little more than the host metrics'
+  `system.network.io`, so the flag requires the list. Capture uses OBI's default
+  `socket_filter` source: one raw socket that sees every interface, loopback
+  included (OBI's `lo` exclusion applies only to the `tc` source), deduplicated
+  across interfaces. With no `--trace-*` flag the receiver keeps only its exclude rules,
+  so application instrumentation doesn't start (`pkg/obi/config.go`, `Enabled`).
+  Capture needs fewer capabilities (`CAP_BPF`, `CAP_NET_RAW`, `CAP_PERFMON`, and
+  `CAP_SYS_RESOURCE` before 5.11; `pkg/obi/os.go`), but the collector still runs
+  as root: older systemd rejects `CAP_BPF` (see [Why root](#why-root)), and
+  RHEL-family 4.18 kernels need `CAP_SYS_ADMIN` instead. A network setup failure ends OBI's whole run, tracing
+  included, and is logged only at debug level (`pkg/instrumenter/instrumenter.go`),
+  hence the required success line.
 
 ## Tested on
 
@@ -422,8 +504,26 @@ OBI spans only for its first 1.5 seconds of traffic, before its first export,
 and again for under 2 seconds after a collector restart. An uninstrumented app
 beside it was traced throughout.
 
-Not yet tested: .NET apps, Go's header injection over TLS, cloud hosts, and
-kernels where OBI fails or turns propagation off after start-up.
+Network flows were tested on 2026-10-29 on Multipass VMs on a Mac mini (arm64):
+
+- **Ubuntu 24.04 (kernel 6.8) and 22.04 (5.15)**: installs succeeded, with
+  `Flows agent successfully started` logged about 22 seconds after start, before
+  the installer's check. HTTP and Redis traffic between two hosts arrived with the
+  right `src_cidr` and `dst_cidr` names, each edge reported by both hosts, each
+  report within about 5% of the bytes sent (a 52.4 MB Redis burst: 55.05 MB and
+  52.5 MB; 31.5 MB of HTTP: 32.9 MB and 30.5 MB). Loopback was counted only
+  between different addresses (127.0.0.1 to 127.0.0.2, and the DNS stub), not
+  127.0.0.1 to itself. Combined with `--trace-ports`, both spans and flows
+  arrived, and no RED metrics. On 5.15 the combined mode logs OBI's `TCP socket
+  iterator disabled` warning (see [Limitations](#limitations)).
+- **Ubuntu 20.04 (5.4)**: rejected by the pre-flight validate (`kernel version
+  5.4 not supported. Minimum required version is 5.8`). A fresh install left no
+  unit, config or binary; an existing working install was left untouched (same
+  PID, and unchanged config, binary and unit).
+- The collector used 260-320 MB RSS and about 1% CPU; flows added about 25-75 MB.
+
+Not yet tested: .NET apps, Go's header injection over TLS, cloud hosts, and kernels
+where OBI fails or turns propagation off after start-up.
 
 ## References
 
