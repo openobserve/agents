@@ -199,23 +199,31 @@ Labels:
 | Label | Values |
 |---|---|
 | `src_cidr`, `dst_cidr` | Name of the narrowest matching entry, or empty |
-| `direction` | `request` (from the side that opened the connection), `response`, or `unknown` (e.g. UDP) |
+| `direction` | `request` (from the side that opened the connection), `response`, or `unknown` (UDP, and TCP connections already open when the collector started) |
 | `host_name`, `host_id` | The host that reported the flow, not an end of it (plus the cloud attributes, as for host metrics) |
 
-For example, request bytes per second between named hosts:
+For example, bytes per second from each named source to each destination:
 
 ```promql
-max by (src_cidr, dst_cidr) (rate(obi_network_flow_bytes{direction="request"}[5m]))
+max by (src_cidr, dst_cidr) (sum by (src_cidr, dst_cidr, host_name) (rate(obi_network_flow_bytes[5m])))
 ```
 
 Things to know:
 
+- **`direction` needs the connection's start.** OBI decides it from the TCP
+  handshake (SYN, SYN-ACK), so a connection that was already open when the
+  collector started, such as a keepalive pool to a back end, is `unknown` until it
+  closes and is reopened. Filtering on `direction="request"` misses such an edge
+  entirely; the query above doesn't filter on it.
 - **Traffic between two hosts that both run the agent is reported twice**, once by
-  each host (two `host_name` values). Hence `max` above, which is exact when either
-  entry is a single host that runs the agent, since its report carries the whole
-  total. Where only one side runs the agent and its entry covers several hosts, each
-  host reports only its share: use `sum` instead. Where both entries cover several
-  agent hosts, neither query is exact (`max` undercounts, `sum` doubles).
+  each host (two `host_name` values). Hence `max` above, which avoids double
+  counting when either entry is a single host that runs the agent, since its report
+  carries the whole total. It isn't byte-exact: the sending host counts each
+  packet's headers (about 5% over the payload in a bulk transfer), the receiving
+  host about 0.15%, and `max` takes the sender's view. Where only one side runs the
+  agent and its entry covers several hosts, each host reports only its share: use
+  `sum` instead. Where both entries cover several agent hosts, neither query is
+  right (`max` undercounts, `sum` about doubles).
 - **Loopback traffic is counted** unless both ends have the same address. For
   example 127.0.0.1 to 127.0.0.53 (a local DNS stub) appears; add
   `127.0.0.0/8=loopback` to tell it apart.
@@ -376,10 +384,12 @@ Rules for editing:
 - OBI shares the collector's memory limit, and changing what is traced restarts
   the whole collector, briefly pausing logs and metrics.
 - A collector upgrade also upgrades OBI, which may rename spans and attributes.
-- **Network flows can under-count busy flows during short bursts.** In testing,
-  a burst of about 6 seconds was only about half counted. The likely cause is a
-  race in OBI's flow-map drain, which discards entries whose start time predates
-  its last read (`pkg/internal/netolly/ebpf/flow_map_reader_batch.go`).
+- **Network flows can under-count busy flows during short bursts.** In one test,
+  a burst of about 6 seconds was only about half counted; later tests (bursts of
+  0.8 and 6 seconds, idle and under load, kernels 5.15 and 6.8) didn't reproduce
+  it. The likely cause is a race in OBI's flow-map drain, which discards entries
+  whose start time predates its last read
+  (`pkg/internal/netolly/ebpf/flow_map_reader_batch.go`).
 - Off a cloud, a tracing or network flows install takes about 45 seconds: the installer waits for
   the collector to be ready, and its cloud metadata lookups time out first
   (about 5 seconds per pipeline).
@@ -521,6 +531,9 @@ Network flows were tested on 2026-10-29 on Multipass VMs on a Mac mini (arm64):
   unit, config or binary; an existing working install was left untouched (same
   PID, and unchanged config, binary and unit).
 - The collector used 260-320 MB RSS and about 1% CPU; flows added about 25-75 MB.
+- **Across two hosts** (4 VMs, 22.04 on 5.15 and 24.04 on 6.8; nginx to an API to
+  Postgres and Redis): every edge was named correctly. Of 524.3 MB of payload the
+  sender reported 4.9-5.3% more, the receiver 0.15% more; the ACK side matched exactly.
 
 Not yet tested: .NET apps, Go's header injection over TLS, cloud hosts, and kernels
 where OBI fails or turns propagation off after start-up.
