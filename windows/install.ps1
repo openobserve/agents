@@ -89,6 +89,9 @@ receivers:
     scrapers:
       cpu:
         metrics:
+          # cpu is off by default and the cores are summed; CPU percent then goes negative.
+          system.cpu.time:
+            attributes: [cpu, state]
           system.cpu.utilization:
             enabled: true
       disk:
