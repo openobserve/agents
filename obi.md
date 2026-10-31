@@ -199,7 +199,7 @@ Labels:
 | Label | Values |
 |---|---|
 | `src_cidr`, `dst_cidr` | Name of the narrowest matching entry, or empty |
-| `direction` | `request` (from the side that opened the connection), `response`, or `unknown` (UDP, and TCP connections already open when the collector started) |
+| `direction` | `request` (from the side that opened the connection), `response`, or `unknown` (UDP, TCP connections already open when the collector started, and part of a busy new connection) |
 | `host_name`, `host_id` | The host that reported the flow, not an end of it (plus the cloud attributes, as for host metrics) |
 
 For example, bytes per second from each named source to each destination:
@@ -214,19 +214,23 @@ Things to know:
   handshake (SYN, SYN-ACK), so a connection that was already open when the
   collector started, such as a keepalive pool to a back end, is `unknown` until it
   closes and is reopened. Filtering on `direction="request"` misses such an edge
-  entirely; the query above doesn't filter on it.
+  entirely. Even a busy new TCP connection is only mostly labelled: in tests
+  1.3-3.4% of its bytes were `unknown`. The query above doesn't filter on it.
 - **Traffic between two hosts that both run the agent is reported twice**, once by
   each host (two `host_name` values). Hence `max` above, which avoids double
   counting when either entry is a single host that runs the agent, since its report
-  carries the whole total. It isn't byte-exact: the sending host counts each
-  packet's headers (about 5% over the payload in a bulk transfer), the receiving
-  host about 0.15%, and `max` takes the sender's view. Where only one side runs the
-  agent and its entry covers several hosts, each host reports only its share: use
+  carries the whole total. It isn't byte-exact: the two hosts' counts differ by up
+  to a few percent depending on the setup (headers, offload), and `max` takes the
+  larger. Where only one side runs the agent and its entry covers several hosts,
+  each host reports only its share: use
   `sum` instead. Where both entries cover several agent hosts, neither query is
   right (`max` undercounts, `sum` about doubles).
 - **Loopback traffic is counted** unless both ends have the same address. For
   example 127.0.0.1 to 127.0.0.53 (a local DNS stub) appears; add
   `127.0.0.0/8=loopback` to tell it apart.
+- **A flow series idle for about 6 minutes is dropped** and restarts from 0 when
+  traffic resumes. `rate()` and `increase()` handle this, but subtracting two raw
+  readings can go negative.
 - The number of series grows with the pairs of entries that talk, not with the
   number of addresses, so wide entries such as `0.0.0.0/0` are safe.
 
@@ -384,11 +388,11 @@ Rules for editing:
 - OBI shares the collector's memory limit, and changing what is traced restarts
   the whole collector, briefly pausing logs and metrics.
 - A collector upgrade also upgrades OBI, which may rename spans and attributes.
-- **Network flows can under-count busy flows during short bursts.** In one test,
-  a burst of about 6 seconds was only about half counted; later tests (bursts of
-  0.8 and 6 seconds, idle and under load, kernels 5.15 and 6.8) didn't reproduce
-  it. The likely cause is a race in OBI's flow-map drain, which discards entries
-  whose start time predates its last read
+- **Network flows can under-count some transfers.** Short and 6-second bursts
+  were counted fully in later tests (Linux and Kubernetes), but some slower,
+  rate-limited multi-second transfers were undercounted by roughly 5% in one
+  host's view. The likely cause is a race in OBI's flow-map drain, which discards
+  entries whose start time predates its last read
   (`pkg/internal/netolly/ebpf/flow_map_reader_batch.go`).
 - Off a cloud, a tracing or network flows install takes about 45 seconds: the installer waits for
   the collector to be ready, and its cloud metadata lookups time out first
