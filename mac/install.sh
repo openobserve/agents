@@ -32,7 +32,7 @@ fi
 
 # Detect architecture
 ARCH=$(uname -m)
-OTEL_VERSION="0.163.1"
+OTEL_VERSION="0.166.0"
 
 if [ "$ARCH" = "x86_64" ]; then
     ARCH="amd64"

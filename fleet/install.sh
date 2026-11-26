@@ -199,7 +199,7 @@ if [ -z "$VERSION" ]; then
             || die "Could not fetch the default collector version from $VERSION_URL; pass --version"
     fi
 fi
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "--version must look like 0.163.1, got '$VERSION'"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "--version must look like 0.166.0, got '$VERSION'"
 
 for tool in curl tar base64; do
     command -v "$tool" >/dev/null 2>&1 || die "'$tool' is required but not installed"

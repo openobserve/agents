@@ -122,7 +122,7 @@ if (-not $Version) {
     }
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    Fail "-Version must look like 0.163.1, got '$Version'"
+    Fail "-Version must look like 0.166.0, got '$Version'"
 }
 
 # The supervisor is only published for windows/amd64 upstream.
