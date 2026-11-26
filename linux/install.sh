@@ -173,7 +173,7 @@ fi
 # Detect OS and architecture
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
-OTEL_VERSION="0.163.1"
+OTEL_VERSION="0.166.0"
 
 case "$ARCH" in
     x86_64)  ARCH="amd64" ;;

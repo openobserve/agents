@@ -5,7 +5,7 @@
 # Default version of powershell is 5.1 which does not support extracting .tar.gz files natively.
 
 # Set your variables
-OTEL_VERSION="0.90.1"  # The desired version
+OTEL_VERSION="0.166.0"  # The desired version
 OS="windows"           # Operating system
 ARCHS=("amd64" "386")  # Architectures
 ROOT_DIR="${OTEL_VERSION}"  # Root directory for the operation

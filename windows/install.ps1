@@ -24,7 +24,7 @@ if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
 # Detect the operating system and its architecture
 $OS = "windows"
 $ARCH = $ENV:PROCESSOR_ARCHITECTURE.ToLower()
-$OTEL_VERSION = "0.163.1"
+$OTEL_VERSION = "0.166.0"
 
 # Architecture check
 $ARCH = if ($ARCH -eq "amd64") { "amd64" } elseif ($ARCH -eq "arm64") { "arm64" } elseif ($ARCH -eq "x86") { "386" } else { $ARCH }
